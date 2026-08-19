@@ -138,7 +138,7 @@ class AdbManager(private val context: Context) {
                 val reader = BufferedReader(InputStreamReader(proc.inputStream))
                 val errReader = BufferedReader(InputStreamReader(proc.errorStream))
                 var line: String?
-                while (reader.readLine().also { line = it } != null) onOutput(line)
+                while (reader.readLine().also { line = it } != null) onOutput(line ?: "")
                 while (errReader.readLine().also { line = it } != null) onOutput("ERR: $line")
                 proc.waitFor()
                 onComplete(proc.exitValue() == 0, "exit=${proc.exitValue()}")
@@ -274,10 +274,10 @@ private fun AdbPage(onBack: () -> Unit) {
         if (executing) return
         executing = true
         output = ""
-        adb.executeCommand(command) { line -> output = output + line + "\n" } { success, msg ->
+        adb.executeCommand(command, onOutput = { line -> output = output + line + "\n" }, onComplete = { success, msg ->
             executing = false
             if (!success) lastError = msg
-        }
+        })
     }
 
     Scaffold(
