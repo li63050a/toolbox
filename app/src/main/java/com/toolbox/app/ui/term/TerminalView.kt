@@ -18,7 +18,12 @@ class TerminalView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     private var columns = 80
+        private set
     private var rows = 24
+        private set
+
+    val termColumns: Int get() = columns
+    val termRows: Int get() = rows
     private val scrollbackMax = 2000
 
     private val lines = ArrayList<CharArray>()          // 历史+可见，最后一行 = 光标行
@@ -51,6 +56,7 @@ class TerminalView @JvmOverloads constructor(
     )
 
     var stdinConsumer: ((ByteArray) -> Unit)? = null
+    var resizeCallback: ((Int, Int) -> Unit)? = null
 
     init {
         setBackgroundColor(backgroundColor)
@@ -375,6 +381,7 @@ class TerminalView @JvmOverloads constructor(
         if (oldRows == 0 || oldRows > rows) ensureRows(rows.coerceAtLeast(5))
         cursorRow = cursorRow.coerceAtMost(lines.size - 1)
         cursorCol = cursorCol.coerceAtMost(columns - 1)
+        resizeCallback?.invoke(columns, rows)
         invalidate()
     }
 

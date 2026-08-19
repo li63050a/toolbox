@@ -391,6 +391,11 @@ fun SshTerminalScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
     var fontSize by remember { mutableStateOf(14f) }
 
     LaunchedEffect(Unit) { connect() }
+    LaunchedEffect(channelHolder.value, terminalHolder.value) {
+        val ch = channelHolder.value ?: return@LaunchedEffect
+        val tv = terminalHolder.value ?: return@LaunchedEffect
+        runCatching { ch.setPtySize(tv.termColumns, tv.termRows, 0, 0) }
+    }
 
     Scaffold(
         topBar = {
@@ -414,6 +419,11 @@ fun SshTerminalScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
                         tv.setFontSize(fontSize)
                         tv.stdinConsumer = { data ->
                             runCatching { channelHolder.value?.outputStream?.write(data) }
+                        }
+                        tv.resizeCallback = { cols, rows ->
+                            runCatching {
+                                channelHolder.value?.setPtySize(cols, rows, 0, 0)
+                            }
                         }
                         terminalHolder.value = tv
                     }

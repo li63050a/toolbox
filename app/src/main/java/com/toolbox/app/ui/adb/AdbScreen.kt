@@ -1,7 +1,5 @@
 package com.toolbox.app.ui.adb
 
-import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -38,6 +36,7 @@ import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -64,95 +63,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.toolbox.app.R
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 import kotlin.concurrent.thread
 
 private const val TAG = "AdbManager"
-
-data class AdbDevice(val serial: String, val state: String) {
-    val isConnected: Boolean get() = state == "device"
-    val isWireless: Boolean get() = serial.contains(":")
-}
-
-data class AdbFile(
-    val name: String,
-    val isDirectory: Boolean,
-    val size: Long,
-    val modified: Long
-)
-
-class AdbManager(private val context: Context) {
-    var selectedDevice: String? = null
-
-    fun deviceArgs(): Array<String> = selectedDevice?.let { arrayOf("-s", it) } ?: emptyArray()
-
-    fun execute(cmd: String, args: List<String> = emptyList()): Result<String> {
-        return try {
-            val fullArgs = buildList {
-                add("adb")
-                addAll(deviceArgs())
-                add(cmd)
-                addAll(args)
-            }
-            val proc = ProcessBuilder(*fullArgs.toTypedArray()).redirectErrorStream(true).start()
-            val reader = BufferedReader(InputStreamReader(proc.inputStream))
-            val sb = StringBuilder()
-            var line: String?
-            while (reader.readLine().also { line = it } != null) sb.append(line).append("\n")
-            proc.waitFor()
-            val out = sb.toString().trim()
-            if (proc.exitValue() == 0) Result.success(out) else Result.failure(Exception(out.ifEmpty { "exit=${proc.exitValue()}" }))
-        } catch (e: Exception) {
-            com.toolbox.app.log.Log.e(TAG, "execute $cmd 失败", e)
-            Result.failure(e)
-        }
-    }
-
-    fun refreshDevices(): List<AdbDevice> {
-        val result = execute("devices")
-        return result.getOrElse { return emptyList() }
-            .lineSequence()
-            .filter { it.isNotBlank() && !it.startsWith("List") }
-            .mapNotNull { line ->
-                val parts = line.split("\t")
-                if (parts.size >= 2) AdbDevice(parts[0], parts[1]) else null
-            }.toList()
-    }
-
-    fun connectDevice(host: String, port: Int = 5555): Result<Unit> {
-        val result = execute("connect", listOf("$host:$port"))
-        return if (result.getOrNull()?.contains("connected") == true) Result.success(Unit) else result.map { Unit }
-    }
-
-    fun disconnectDevice(serial: String): Result<Unit> {
-        if (!serial.contains(":")) return Result.success(Unit)
-        return execute("disconnect", listOf(serial)).map { Unit }
-    }
-
-    fun listFiles(path: String): Result<List<AdbFile>> {
-        val result = execute("shell", listOf("ls", "-1", path))
-        return result.getOrElse { return Result.failure(it) }
-            .lineSequence()
-            .filter { it.isNotBlank() && !it.startsWith("total") }
-            .mapNotNull { line ->
-                try {
-                    val parts = line.split(Regex("\\s+"), limit = 9)
-                    if (parts.size < 9) return@mapNotNull null
-                    val isDir = parts[0].isNotEmpty() && parts[0][0] == 'd'
-                    val size = parts[4].toLongOrNull() ?: 0L
-                    val name = parts[8]
-                    if (name == "." || name == "..") return@mapNotNull null
-                    AdbFile(name, isDir, size, 0L)
-                } catch (e: Exception) { null }
-            }.toList().let { Result.success(it) }
-    }
-
-    fun getAppList(): Result<String> = execute("shell", listOf("pm", "list", "packages", "-3"))
-    fun getBatteryInfo(): Result<String> = execute("shell", listOf("dumpsys", "battery"))
-    fun getDeviceInfo(): Result<String> = execute("shell", listOf("getprop"))
-}
 
 enum class AdbTab { DEVICES, FILES, COMMAND, APPS, INFO }
 
@@ -174,7 +88,12 @@ fun AdbScreen(onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { /* 刷新 */ }) {
+                    IconButton(onClick = {
+                        thread {
+                            val devices = adb.refreshDevices()
+                            // State refresh is handled per-tab via LaunchedEffect
+                        }
+                    }) {
                         Icon(Icons.Filled.Cached, stringResource(R.string.adb_refresh))
                     }
                     IconButton(onClick = { showConnectDialog = true }) {
@@ -209,25 +128,28 @@ fun AdbScreen(onBack: () -> Unit) {
             onDismiss = { showConnectDialog = false },
             onConnect = { host, port ->
                 showConnectDialog = false
-                adb.connectDevice(host, port)
+                thread { adb.connectDevice(host, port) }
             }
         )
     }
 }
 
 private fun AdbTab.label(context: android.content.Context): String = when (this) {
-        AdbTab.DEVICES -> context.getString(R.string.adb_tab_devices)
-        AdbTab.FILES -> context.getString(R.string.adb_tab_files)
-        AdbTab.COMMAND -> context.getString(R.string.adb_tab_command)
-        AdbTab.APPS -> context.getString(R.string.adb_tab_apps)
-        AdbTab.INFO -> context.getString(R.string.adb_tab_info)
-    }
+    AdbTab.DEVICES -> context.getString(R.string.adb_tab_devices)
+    AdbTab.FILES -> context.getString(R.string.adb_tab_files)
+    AdbTab.COMMAND -> context.getString(R.string.adb_tab_command)
+    AdbTab.APPS -> context.getString(R.string.adb_tab_apps)
+    AdbTab.INFO -> context.getString(R.string.adb_tab_info)
+}
 
 @Composable
 private fun DevicesTab(adb: AdbManager, onConnect: () -> Unit) {
     var devices by remember { mutableStateOf<List<AdbDevice>>(emptyList()) }
+    var refreshing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { devices = adb.refreshDevices() }
+    LaunchedEffect(Unit) {
+        devices = adb.refreshDevices()
+    }
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(
@@ -272,8 +194,13 @@ private fun DevicesTab(adb: AdbManager, onConnect: () -> Unit) {
                     DeviceRow(
                         device = device,
                         isSelected = adb.selectedDevice == device.serial,
-                        onSelect = { adb.selectedDevice = device.serial },
-                        onDisconnect = { if (device.isWireless) adb.disconnectDevice(device.serial) }
+                        onSelect = { adb.setSelectedDevice(device.serial) },
+                        onDisconnect = {
+                            thread {
+                                adb.disconnectDevice(device.serial)
+                                devices = adb.refreshDevices()
+                            }
+                        }
                     )
                 }
             }
@@ -287,6 +214,28 @@ private fun DevicesTab(adb: AdbManager, onConnect: () -> Unit) {
             Icon(Icons.Filled.ConnectWithoutContact, null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.adb_connect_wireless))
+        }
+
+        Button(
+            onClick = {
+                refreshing = true
+                thread {
+                    devices = adb.refreshDevices()
+                    refreshing = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !refreshing,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+        ) {
+            if (refreshing) {
+                LinearProgressIndicator(modifier = Modifier.width(24.dp))
+                Spacer(Modifier.width(8.dp))
+            } else {
+                Icon(Icons.Filled.Cached, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(stringResource(R.string.adb_refresh))
         }
     }
 }
@@ -329,10 +278,15 @@ private fun DeviceRow(device: AdbDevice, isSelected: Boolean, onSelect: () -> Un
 private fun FilesTab(adb: AdbManager) {
     var currentPath by remember { mutableStateOf("/sdcard") }
     var files by remember { mutableStateOf<List<AdbFile>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
 
     fun refresh() {
-        val result = adb.listFiles(currentPath)
-        files = result.getOrElse { emptyList() }
+        loading = true
+        thread {
+            val result = adb.listFiles(currentPath)
+            files = result.getOrNull() ?: emptyList()
+            loading = false
+        }
     }
 
     LaunchedEffect(Unit) { refresh() }
@@ -358,7 +312,9 @@ private fun FilesTab(adb: AdbManager) {
             }
         }
         Divider()
-        if (files.isEmpty()) {
+        if (loading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else if (files.isEmpty()) {
             Text(stringResource(R.string.adb_empty_dir), Modifier.align(Alignment.CenterHorizontally), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             LazyColumn {
@@ -409,7 +365,7 @@ private fun CommandTab(adb: AdbManager) {
         executing = true
         output = ""
         thread {
-            val result = adb.execute("shell", listOf(command))
+            val result = adb.shellCommand(command)
             output = result.getOrNull() ?: "Error: ${result.exceptionOrNull()?.message}"
             executing = false
         }
@@ -448,7 +404,7 @@ private fun CommandTab(adb: AdbManager) {
                     Text(stringResource(R.string.adb_output), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     if (executing) {
                         Spacer(Modifier.width(8.dp))
-                        androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        LinearProgressIndicator(modifier = Modifier.width(48.dp))
                     }
                 }
                 Divider(modifier = Modifier.padding(vertical = 8.dp))
@@ -470,10 +426,13 @@ private fun CommandTab(adb: AdbManager) {
 private fun AppsTab(adb: AdbManager) {
     var apps by remember { mutableStateOf<List<String>>(emptyList()) }
     var search by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        loading = true
         val result = adb.getAppList()
         apps = result.getOrNull()?.lineSequence()?.filter { it.startsWith("package:") }?.map { it.substringAfter("package:") }?.toList() ?: emptyList()
+        loading = false
     }
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
@@ -485,17 +444,21 @@ private fun AppsTab(adb: AdbManager) {
             singleLine = true
         )
         Spacer(Modifier.height(8.dp))
-        val filtered = if (search.isEmpty()) apps else apps.filter { it.contains(search, ignoreCase = true) }
-        LazyColumn {
-            items(filtered) { pkg ->
-                Card(Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Apps, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                        Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                            Text(pkg, style = MaterialTheme.typography.bodyMedium)
-                        }
-                        OutlinedButton(onClick = { /* 卸载 */ }) {
-                            Text(stringResource(R.string.adb_uninstall))
+        if (loading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else {
+            val filtered = if (search.isEmpty()) apps else apps.filter { it.contains(search, ignoreCase = true) }
+            LazyColumn {
+                items(filtered) { pkg ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Apps, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                Text(pkg, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            OutlinedButton(onClick = { /* 卸载 */ }) {
+                                Text(stringResource(R.string.adb_uninstall))
+                            }
                         }
                     }
                 }
@@ -508,27 +471,34 @@ private fun AppsTab(adb: AdbManager) {
 private fun InfoTab(adb: AdbManager) {
     var deviceInfo by remember { mutableStateOf("") }
     var batteryInfo by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        loading = true
         val infoResult = adb.getDeviceInfo()
         deviceInfo = infoResult.getOrNull() ?: ""
         val batteryResult = adb.getBatteryInfo()
         batteryInfo = batteryResult.getOrNull() ?: ""
+        loading = false
     }
 
     Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                Text(stringResource(R.string.adb_device_info), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
-                Text(deviceInfo, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+        if (loading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text(stringResource(R.string.adb_device_info), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(deviceInfo, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                }
             }
-        }
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                Text(stringResource(R.string.adb_battery_info), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
-                Text(batteryInfo, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text(stringResource(R.string.adb_battery_info), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(batteryInfo, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                }
             }
         }
     }

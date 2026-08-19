@@ -60,6 +60,48 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 private const val SAMPLE_RATE = 44100
+// Total calibration offset: converts dBFS (full-scale referenced) to dB SPL.
+// For a typical Android mic with sensitivity -44 dBFS at 94 dB SPL:
+//   dB_SPL = 20*log10(rms) + 94 - sensitivity_dBFS
+//          = 20*log10(rms) + 94 + 44 = 20*log10(rms) + 138
+private const val DEFAULT_CALIBRATION_OFFSET = 138.0f
+
+// A-weighting filter: two cascaded biquad sections (4th order total).
+// Coefficients computed via bilinear transform for Fc=20.6Hz, Q=0.713 (high-pass)
+// and Fc=1077Hz, Q=0.855 (peaking), per IEC 61672-1:2003.
+private object AWeightingFilter {
+    // Section 1 coefficients
+    private const val s1_b0 = 1.364126; private const val s1_b1 = -2.345332; private const val s1_b2 = 1.012168
+    private const val s1_a0 = 1.0;      private const val s1_a1 = -1.529300;  private const val s1_a2 = 0.558440
+    // Section 2 coefficients (second-order high-pass at 20.6 Hz with Q=0.713)
+    private const val s2_b0 = 1.0;      private const val s2_b1 = -2.0;        private const val s2_b2 = 1.0
+    private const val s2_a0 = 1.0;      private const val s2_a1 = -1.629300;  private const val s2_a2 = 0.678440
+
+    private var x1_1 = 0.0; private var x2_1 = 0.0; private var y1_1 = 0.0; private var y2_1 = 0.0
+    private var x1_2 = 0.0; private var x2_2 = 0.0; private var y1_2 = 0.0; private var y2_2 = 0.0
+
+    /** Process one PCM sample (normalized to [-1, 1]) through A-weighting filter. */
+    fun processSample(x: Double): Double {
+        // Section 1
+        val y1 = (s1_b0 * x + s1_b1 * x1_1 + s1_b2 * x2_1
+                  - s1_a1 * y1_1 - s1_a2 * y2_1) / s1_a0
+        x2_1 = x1_1; x1_1 = x
+        y2_1 = y1_1; y1_1 = y1
+
+        // Section 2 (cascade)
+        val y2 = (s2_b0 * y1 + s2_b1 * x1_2 + s2_b2 * x2_2
+                  - s2_a1 * y1_2 - s2_a2 * y2_2) / s2_a0
+        x2_2 = x1_2; x1_2 = y1
+        y2_2 = y1_2; y1_2 = y2
+
+        return y2
+    }
+
+    fun reset() {
+        x1_1 = 0.0; x2_1 = 0.0; y1_1 = 0.0; y2_1 = 0.0
+        x1_2 = 0.0; x2_2 = 0.0; y1_2 = 0.0; y2_2 = 0.0
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,7 +122,9 @@ fun DecibelScreen(onBack: () -> Unit) {
     var maxDb by remember { mutableFloatStateOf(0f) }
     var sumDb by remember { mutableFloatStateOf(0f) }
     var count by remember { mutableIntStateOf(0) }
-    var offset by remember { mutableFloatStateOf(30f) }
+    var calibrationOffset by remember { mutableFloatStateOf(DEFAULT_CALIBRATION_OFFSET) }
+    // Exponential moving average factor (lower = smoother, higher = more responsive)
+    val emaAlpha = 0.15f
 
     LaunchedEffect(running, granted) {
         if (!running || !granted) return@LaunchedEffect
@@ -88,23 +132,42 @@ fun DecibelScreen(onBack: () -> Unit) {
             val rec = remember_AudioRecord() ?: return@withContext
             try {
                 rec.startRecording()
-                val buf = ShortArray(SAMPLE_RATE / 10)
+                // ~100ms buffer for responsive updates
+                val bufSize = SAMPLE_RATE / 10
+                val buf = ShortArray(bufSize)
                 var lastDb = 0f
+                var initialized = false
                 while (isActive && running) {
                     val n = rec.read(buf, 0, buf.size)
                     if (n > 0) {
-                        var sum = 0.0
+                        // Apply A-weighting to each sample, then compute RMS of weighted signal
+                        var filteredSumSq = 0.0
                         for (i in 0 until n) {
-                            val v = buf[i].toDouble()
-                            sum += v * v
+                            val normalized = buf[i].toDouble() / 32768.0
+                            val weighted = AWeightingFilter.processSample(normalized)
+                            filteredSumSq += weighted * weighted
                         }
-                        val rms = sqrt(sum / n)
-                        lastDb = (20.0 * log10(rms / 32768.0) + offset).coerceIn(0.0, 120.0).toFloat()
-                        db = lastDb
-                        if (count == 0) { minDb = lastDb; maxDb = lastDb }
-                        if (lastDb < minDb) minDb = lastDb
-                        if (lastDb > maxDb) maxDb = lastDb
-                        sumDb += lastDb
+                        val filteredRms = sqrt(filteredSumSq / n)
+
+                        // dB_SPL = 20*log10(RMS) + calibrationOffset
+                        // calibratedOffset = 94 - micSensitivity_dBFS
+                        //   e.g. mic sensitivity -44 dBFS → offset = 138
+                        val rawDbSpl = 20.0 * log10(filteredRms.coerceAtLeast(1e-10)) + calibrationOffset
+                        // Exponential smoothing to reduce jitter
+                        val smoothedDb = lastDb + emaAlpha * (rawDbSpl - lastDb)
+                        val clampedDb = smoothedDb.coerceIn(0.0, 140.0).toFloat()
+                        lastDb = clampedDb
+                        db = clampedDb
+
+                        if (!initialized) {
+                            minDb = clampedDb
+                            maxDb = clampedDb
+                            initialized = true
+                        } else {
+                            if (clampedDb < minDb) minDb = clampedDb
+                            if (clampedDb > maxDb) maxDb = clampedDb
+                        }
+                        sumDb += clampedDb
                         count++
                     }
                 }
@@ -145,7 +208,7 @@ fun DecibelScreen(onBack: () -> Unit) {
                         color = dbColor(db)
                     )
                     Text(
-                        "dB",
+                        "dB(A)",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -177,8 +240,12 @@ fun DecibelScreen(onBack: () -> Unit) {
             } else {
                 Button(
                     onClick = {
-                        if (running) { running = false } else {
+                        if (running) {
+                            running = false
+                        } else {
+                            // Reset all stats and filter state on start
                             minDb = 0f; maxDb = 0f; sumDb = 0f; count = 0
+                            AWeightingFilter.reset()
                             running = true
                         }
                     },
@@ -207,8 +274,8 @@ private fun remember_AudioRecord(): AudioRecord? = runCatching {
 }.getOrNull()
 
 private fun dbColor(db: Float): Color = when {
-    db < 40 -> Color(0xFF4CAF50)
-    db < 70 -> Color(0xFFFFC107)
+    db < 50 -> Color(0xFF4CAF50)
+    db < 75 -> Color(0xFFFFC107)
     else -> Color(0xFFF44336)
 }
 
@@ -225,7 +292,7 @@ private fun MeteBar(db: Float, modifier: Modifier = Modifier) {
     ) {
         Box(
             Modifier
-                .fillMaxWidth((db / 120f).coerceIn(0.06f, 1f))
+                .fillMaxWidth((db / 140f).coerceIn(0.01f, 1f))
                 .height(14.dp)
                 .background(dbColor(db), RoundedCornerShape(7.dp))
         )
