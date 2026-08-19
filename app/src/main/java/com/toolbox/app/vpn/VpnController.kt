@@ -26,23 +26,13 @@ object VpnController {
     val lastError: StateFlow<String?> = _lastError
 
     /**
-     * 未授权时发起系统授权（UI 在 onActivityResult 授权完成后再次调用 start）。
-     * 已授权则直接启动前台 VPN 服务。
+     * 已通过 prepare 授权后直接启动前台 VPN 服务。
+     * UI 层负责 VpnService.prepare 授权流程（授权回调后自动重试）。
      */
     fun start(context: Context) {
         val app = context.applicationContext
         VpnConfigStore.init(app)
-        val prepareIntent = VpnService.prepare(app)
-        if (prepareIntent != null) {
-            try {
-                app.startActivity(prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                Log.i(TAG, "请求 VPN 授权")
-            } catch (t: Throwable) {
-                Log.e(TAG, "发起授权失败", t)
-                _lastError.value = "无法发起 VPN 授权"
-            }
-            return
-        }
+        if (VpnService.prepare(app) != null) return // 未授权，由 UI 层处理
         _status.value = VpnStatus.STARTING
         _lastError.value = null
         try {

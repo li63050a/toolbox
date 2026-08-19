@@ -1,6 +1,10 @@
 package com.toolbox.app.ui.vpn
 
 import android.content.Context
+import android.content.Intent
+import android.net.VpnService
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -140,7 +144,25 @@ private fun MainPage(
 
     val running = status == VpnStatus.ON
 
+    // 系统 VPN 授权回调：用户在授权页点击允许/拒绝后，这里自动重试启动
+    val vpnAuthLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (VpnService.prepare(context) == null) {
+            VpnController.start(context)
+        } else {
+            snack(scope, snackbar, context.getString(R.string.vpn_start_no_permission))
+        }
+    }
+
     fun startVpn() {
+        val prepareIntent = VpnService.prepare(context)
+        if (prepareIntent != null) {
+            Log.i(TAG, "请求系统 VPN 授权")
+            vpnAuthLauncher.launch(prepareIntent)
+            snack(scope, snackbar, context.getString(R.string.vpn_starting_message))
+            return
+        }
         try {
             VpnController.start(context)
             Log.i(TAG, "Requesting VPN start")
