@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Email
@@ -40,7 +41,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +62,7 @@ import com.toolbox.app.data.ThemeMode
 import com.toolbox.app.data.UiSettings
 import com.toolbox.app.ui.theme.AccentPreset
 import com.toolbox.app.ui.theme.BgPreset
+import com.toolbox.app.ui.splash.SplashSettingsScreen
 import kotlinx.coroutines.launch
 
 class SettingsViewModel(private val repo: SettingsRepository) : ViewModel() {
@@ -76,6 +80,27 @@ private data class RadioOption<T>(val label: String, val value: T)
 fun SettingsScreen(
     repo: SettingsRepository,
     onBack: () -> Unit
+) {
+    var page by remember { mutableStateOf("main") }
+
+    when (page) {
+        "splash" -> SplashSettingsScreen(
+            settings = UiSettings(),
+            repo = repo,
+            onBack = { page = "main" }
+        )
+        else -> {
+            MainSettingsPage(repo = repo, onBack = onBack, onPageChange = { page = it })
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun MainSettingsPage(
+    repo: SettingsRepository,
+    onBack: () -> Unit,
+    onPageChange: (String) -> Unit
 ) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(repo) }
     val settings by vm.settings.collectAsState(initial = UiSettings())
@@ -167,6 +192,31 @@ fun SettingsScreen(
                     selected = settings.language,
                     onSelect = ::applyLanguage,
                 )
+            }
+
+            Spacer(Modifier.height(24.dp))
+            SectionTitle(stringResource(R.string.splash_settings_title))
+
+            SettingsCard {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp).clickable { onPageChange("splash") },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(stringResource(R.string.splash_type), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            when (settings.splashType) {
+                                com.toolbox.app.data.SplashType.COLOR -> settings.splashColor
+                                com.toolbox.app.data.SplashType.IMAGE -> stringResource(R.string.splash_image_selected)
+                                com.toolbox.app.data.SplashType.VIDEO -> stringResource(R.string.splash_video_selected)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(Icons.Filled.ArrowForward, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
 
             Spacer(Modifier.height(24.dp))

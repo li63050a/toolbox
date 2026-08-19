@@ -15,11 +15,22 @@ enum class AppLanguage(val raw: String, val tag: String?) {
     SYSTEM("system", null), ZH("zh", "zh"), EN("en", "en")
 }
 
+enum class SplashType(val raw: String, val label: String) {
+    COLOR("color", "纯色背景"),
+    IMAGE("image", "图片"),
+    VIDEO("video", "视频")
+}
+
 data class UiSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val bgPreset: BgPreset = BgPreset.DEFAULT,
     val accentPreset: AccentPreset = AccentPreset.INDIGO,
-    val language: AppLanguage = AppLanguage.ZH
+    val language: AppLanguage = AppLanguage.ZH,
+    val splashType: SplashType = SplashType.COLOR,
+    val splashColor: String = "#1A73E8",
+    val splashImagePath: String? = null,
+    val splashVideoPath: String? = null,
+    val splashDuration: Int = 2000
 )
 
 private val Context.settingsStore by preferencesDataStore(name = "settings")
@@ -31,6 +42,11 @@ class SettingsRepository(private val context: Context) {
         val BG_PRESET = stringPreferencesKey("bg_preset")
         val ACCENT_PRESET = stringPreferencesKey("accent_preset")
         val LANGUAGE = stringPreferencesKey("language")
+        val SPLASH_TYPE = stringPreferencesKey("splash_type")
+        val SPLASH_COLOR = stringPreferencesKey("splash_color")
+        val SPLASH_IMAGE = stringPreferencesKey("splash_image")
+        val SPLASH_VIDEO = stringPreferencesKey("splash_video")
+        val SPLASH_DURATION = stringPreferencesKey("splash_duration")
     }
 
     val settings: Flow<UiSettings> = context.settingsStore.data.map { prefs ->
@@ -39,6 +55,11 @@ class SettingsRepository(private val context: Context) {
             bgPreset = BgPreset.entries.firstOrNull { it.raw == prefs[Keys.BG_PRESET] } ?: BgPreset.DEFAULT,
             accentPreset = AccentPreset.entries.firstOrNull { it.raw == prefs[Keys.ACCENT_PRESET] } ?: AccentPreset.INDIGO,
             language = AppLanguage.entries.firstOrNull { it.raw == prefs[Keys.LANGUAGE] } ?: AppLanguage.ZH,
+            splashType = SplashType.entries.firstOrNull { it.raw == prefs[Keys.SPLASH_TYPE] } ?: SplashType.COLOR,
+            splashColor = prefs[Keys.SPLASH_COLOR] ?: "#1A73E8",
+            splashImagePath = prefs[Keys.SPLASH_IMAGE],
+            splashVideoPath = prefs[Keys.SPLASH_VIDEO],
+            splashDuration = prefs[Keys.SPLASH_DURATION]?.toIntOrNull() ?: 2000
         )
     }
 
@@ -54,13 +75,31 @@ class SettingsRepository(private val context: Context) {
         context.settingsStore.edit { it[Keys.ACCENT_PRESET] = preset.raw }
     }
 
-    /** 语言切换：先同步写 SharedPreferences（供 Activity.attachBaseContext 读取），再写 DataStore */
     suspend fun setLanguage(language: AppLanguage) {
         applyLanguageSync(language)
         context.settingsStore.edit { it[Keys.LANGUAGE] = language.raw }
     }
 
-    /** 同步写入语言，Activity re-create 时 attachBaseContext 会立即读到 */
+    suspend fun setSplashType(type: SplashType) {
+        context.settingsStore.edit { it[Keys.SPLASH_TYPE] = type.raw }
+    }
+
+    suspend fun setSplashColor(color: String) {
+        context.settingsStore.edit { it[Keys.SPLASH_COLOR] = color }
+    }
+
+    suspend fun setSplashImage(path: String?) {
+        context.settingsStore.edit { it[Keys.SPLASH_IMAGE] = path ?: "" }
+    }
+
+    suspend fun setSplashVideo(path: String?) {
+        context.settingsStore.edit { it[Keys.SPLASH_VIDEO] = path ?: "" }
+    }
+
+    suspend fun setSplashDuration(duration: Int) {
+        context.settingsStore.edit { it[Keys.SPLASH_DURATION] = duration.toString() }
+    }
+
     fun applyLanguageSync(language: AppLanguage) {
         context.getSharedPreferences("settings_locale", Context.MODE_PRIVATE)
             .edit()

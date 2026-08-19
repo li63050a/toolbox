@@ -474,4 +474,16 @@
     <string name="developer_name">Developer Name</string>
     <string name="developer_email">Email</string>
     <string name="developer_github">GitHub</string>
+    <string name="splash_settings_title">Splash Screen</string>
+    <string name="splash_type">Splash Type</string>
+    <string name="splash_color">Background Color</string>
+    <string name="splash_image">Background Image</string>
+    <string name="splash_video">Background Video</string>
+    <string name="splash_duration">Duration</string>
+    <string name="duration_ms">milliseconds</string>
+    <string name="preview">Preview</string>
+    <string name="select_image">Select Image</string>
+    <string name="select_video">Select Video</string>
+    <string name="splash_image_selected">Image selected</string>
+    <string name="splash_video_selected">Video selected</string>
 </resources>
