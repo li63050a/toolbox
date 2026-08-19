@@ -115,17 +115,20 @@ fun ShizukuScreen(onBack: () -> Unit) {
                         val processReply = android.os.Parcel.obtain()
                         try {
                             processParcel.writeInterfaceToken("moe.shizuku.server.IRemoteProcess")
-                            processBinder.transact(1, processParcel, processReply, 0) // getInputStream
+                            processBinder.transact(1, processParcel, processReply, 0)
                             processReply.readException()
-                            val isBinder = processReply.readStrongBinder()
-                            if (isBinder != null) {
-                                val inputStream = android.os.ParcelFileDescriptor.AutoCloseInputStream(isBinder)
+                            val pfd = processReply.readParcelable<android.os.ParcelFileDescriptor>(android.os.ParcelFileDescriptor::class.java.classLoader)
+                            if (pfd != null) {
+                                val fd = pfd.fd
+                                val inputStream = java.io.FileInputStream(fd)
                                 val reader = BufferedReader(InputStreamReader(inputStream))
                                 val sb = StringBuilder()
                                 var line: String?
                                 while (reader.readLine().also { line = it } != null) sb.append(line).append("\n")
                                 output = sb.toString().trim()
                                 if (output.isEmpty()) output = "(无输出)"
+                                inputStream.close()
+                                pfd.detachFd()
                             }
                         } finally {
                             processParcel.recycle()
