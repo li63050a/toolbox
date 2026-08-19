@@ -470,4 +470,8 @@
     <string name="adb_cancel">取消</string>
     <string name="home_adb_title">ADB 管理器</string>
     <string name="home_adb_desc">设备管理 · 文件传输 · 命令执行</string>
+    <string name="developer">开发者</string>
+    <string name="developer_name">开发者名称</string>
+    <string name="developer_email">邮箱</string>
+    <string name="developer_github">GitHub</string>
 </resources>

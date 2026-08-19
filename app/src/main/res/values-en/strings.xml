@@ -470,4 +470,8 @@
     <string name="adb_cancel">Cancel</string>
     <string name="home_adb_title">ADB Manager</string>
     <string name="home_adb_desc">Device management · file transfer · commands</string>
+    <string name="developer">Developer</string>
+    <string name="developer_name">Developer Name</string>
+    <string name="developer_email">Email</string>
+    <string name="developer_github">GitHub</string>
 </resources>
