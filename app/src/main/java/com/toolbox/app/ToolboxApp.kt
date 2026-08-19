@@ -4,6 +4,7 @@ import android.app.Application
 import com.toolbox.app.data.ConnectionRepository
 import com.toolbox.app.log.CrashHandler
 import com.toolbox.app.log.Log
+import com.toolbox.app.vpn.VpnConfigStore
 
 object RepositoryProvider {
     lateinit var connections: ConnectionRepository
@@ -16,5 +17,6 @@ class ToolboxApp : Application() {
         Thread.setDefaultUncaughtExceptionHandler(CrashHandler())
         Log.i("App", "工具箱启动")
         RepositoryProvider.connections = ConnectionRepository(this)
+        VpnConfigStore.init(this)
     }
 }

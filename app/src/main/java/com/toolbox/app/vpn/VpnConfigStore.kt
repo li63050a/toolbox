@@ -33,17 +33,22 @@ object VpnConfigStore {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private var context: Context? = null
+    @Volatile private var context: Context? = null
+    private val initLock = Object()
 
     private val _config = MutableStateFlow(VpnConfig())
     val config: StateFlow<VpnConfig> = _config
 
     fun init(context: Context) {
-        if (this.context != null) return
-        this.context = context.applicationContext
+        val ctx = context.applicationContext
+        synchronized(initLock) {
+            if (this.context == null) {
+                this.context = ctx
+            }
+        }
         scope.launch {
             try {
-                val prefs = context.applicationContext.vpnDataStore.data.first()
+                val prefs = ctx.vpnDataStore.data.first()
                 val raw = prefs[key]
                 if (raw != null) {
                     val parsed = json.decodeFromString(VpnConfig.serializer(), raw)

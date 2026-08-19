@@ -1,6 +1,8 @@
 package com.toolbox.app.downloader
 
 import android.content.Context
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -27,7 +29,7 @@ data class DownloadTask(
     val id: String = UUID.randomUUID().toString(),
     val url: String,
     val fileName: String = "",
-    val dir: String,
+    val dirUri: String,
     val threads: Int = 4,
     val total: Long = 0L,
     val downloaded: Long = 0L,
@@ -68,12 +70,12 @@ object DownloadManager {
     private fun partsDir(id: String): File = File(appContext.cacheDir, "dl_$id")
 
     /** 新建下载任务并自动开始 */
-    fun add(url: String, dir: String, threads: Int) {
+    fun add(url: String, dirUri: String, threads: Int) {
         val u = url.trim()
         if (u.isEmpty()) return
         val task = DownloadTask(
             url = u,
-            dir = dir,
+            dirUri = dirUri,
             threads = threads.coerceIn(1, 16),
             fileName = fileNameFrom(u),
             status = DlStatus.RUNNING
@@ -166,8 +168,8 @@ object DownloadManager {
                     }
                     progressJob.cancel()
                 }
-                val merged = mergeToDir(t.url, id, name, t.dir, files)
-                if (merged == null) return@launch // 目录失败已置 FAILED
+                val merged = mergeToUri(t.url, id, name, t.dirUri, files)
+                if (merged != true) return@launch // 目录失败已置 FAILED
                 dir.deleteRecursively()
                 update(id) { it.copy(downloaded = total, status = DlStatus.DONE, speed = 0L) }
             }
@@ -232,16 +234,19 @@ object DownloadManager {
         }
     }
 
-    /** 合并分块到目标目录（MANAGE_EXTERNAL_STORAGE 全路径可写） */
-    private suspend fun mergeToDir(url: String, id: String, name: String, dir: String, files: List<File>): File? =
+    /** 合并分块到目标目录（SAF tree URI，用户授权后可写） */
+    private suspend fun mergeToUri(url: String, id: String, name: String, dirUriStr: String, files: List<File>): Boolean? =
         withContext(Dispatchers.IO) {
             runCatching {
-                val targetDir = File(dir)
-                if (!targetDir.exists() && !targetDir.mkdirs()) throw IllegalStateException("目录不可写: $dir")
-                if (!targetDir.canWrite()) throw IllegalStateException("目录不可写: $dir")
+                val treeUri = Uri.parse(dirUriStr)
+                val tree = DocumentFile.fromTreeUri(appContext, treeUri) ?: throw IllegalStateException("无法访问目标文件夹")
+                if (!tree.canWrite()) throw IllegalStateException("文件夹不可写")
                 if (files.any { it.length() == 0L }) throw IllegalStateException("分块下载不完整")
-                val target = uniqueFile(File(targetDir, name))
-                target.outputStream().use { out ->
+                var target = tree.findFile(name)
+                if (target == null) {
+                    target = tree.createFile("application/octet-stream", name) ?: throw IllegalStateException("无法创建目标文件")
+                }
+                appContext.contentResolver.openOutputStream(target.uri)?.use { out ->
                     files.sortedBy { it.name }.forEach { f ->
                         f.inputStream().use { inp ->
                             val buf = ByteArray(64 * 1024)
@@ -252,8 +257,8 @@ object DownloadManager {
                             }
                         }
                     }
-                }
-                target
+                } ?: throw IllegalStateException("无法写入目标文件")
+                true
             }.getOrElse { e ->
                 _dirError.value = e.message ?: "合并失败"
                 update(id) { it.copy(status = DlStatus.FAILED, error = e.message, speed = 0L) }

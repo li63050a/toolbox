@@ -1,6 +1,10 @@
 package com.toolbox.app.ui.downloader
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -64,9 +68,10 @@ import com.toolbox.app.downloader.DlStatus
 import com.toolbox.app.downloader.DownloadManager
 import com.toolbox.app.downloader.DownloadTask
 import kotlinx.coroutines.launch
+import java.io.File
 
 private val Context.dlStore by preferencesDataStore(name = "downloader")
-private val KEY_DIR = stringPreferencesKey("dir")
+private val KEY_DIR_URI = stringPreferencesKey("dir_uri")
 
 private fun defaultDir(): String = "/storage/emulated/0/Download"
 
@@ -79,19 +84,37 @@ fun DownloaderScreen(onBack: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val tasks by DownloadManager.tasks.collectAsState()
     val dirError by DownloadManager.dirError.collectAsState()
-    var dir by remember { mutableStateOf(defaultDir()) }
-    var showDirDialog by remember { mutableStateOf(false) }
+    var dirUri by remember { mutableStateOf<String?>(null) }
+    var dirLabel by remember { mutableStateOf(defaultDir()) }
     var showAddDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         context.dlStore.data.collect { prefs ->
-            dir = prefs[KEY_DIR] ?: defaultDir()
+            val uriStr = prefs[KEY_DIR_URI]
+            dirUri = uriStr
+            dirLabel = uriStr?.let { uriLabel(context, it) } ?: defaultDir()
         }
     }
     LaunchedEffect(dirError) {
         dirError?.let {
             snackbar.showSnackbar(it)
             DownloadManager.clearDirError()
+        }
+    }
+
+    val dirPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            dirUri = uri.toString()
+            dirLabel = uriLabel(context, uri.toString())
+            scope.launch {
+                context.dlStore.edit { it[KEY_DIR_URI] = uri.toString() }
+            }
         }
     }
 
@@ -104,7 +127,7 @@ fun DownloaderScreen(onBack: () -> Unit) {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.dl_back)) }
                 },
                 actions = {
-                    IconButton(onClick = { showDirDialog = true }) {
+                    IconButton(onClick = { dirPickerLauncher.launch(null) }) {
                         Icon(Icons.Filled.Folder, stringResource(R.string.dl_set_dir))
                     }
                 }
@@ -123,7 +146,7 @@ fun DownloaderScreen(onBack: () -> Unit) {
             ) {
                 Icon(Icons.Filled.Folder, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                 Text(
-                    stringResource(R.string.dl_dir_is, dir),
+                    stringResource(R.string.dl_dir_is, dirLabel),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 6.dp)
@@ -148,19 +171,13 @@ fun DownloaderScreen(onBack: () -> Unit) {
         }
     }
 
-    if (showDirDialog) {
-        DirDialog(initial = dir, onDismiss = { showDirDialog = false }, onConfirm = { newDir ->
-            dir = newDir
-            scope.launch { context.dlStore.edit { it[KEY_DIR] = newDir } }
-            showDirDialog = false
-        })
-    }
     if (showAddDialog) {
         AddDialog(
-            dir = dir,
+            dirUri = dirUri ?: defaultDir(),
             onDismiss = { showAddDialog = false },
             onConfirm = { url, threads ->
-                DownloadManager.add(url, dir, threads)
+                val effectiveUri = dirUri ?: defaultDir()
+                DownloadManager.add(url, effectiveUri, threads)
                 showAddDialog = false
             }
         )
@@ -251,38 +268,24 @@ private fun formatSize(bytes: Long): String {
     return "%.2f GB".format(mb / 1024.0)
 }
 
-@Composable
-private fun DirDialog(initial: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var text by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.dl_dir_title)) },
-        text = {
-            Column {
-                Text(
-                    stringResource(R.string.dl_dir_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(text.trim()) }) { Text(stringResource(R.string.dl_ok)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dl_cancel)) }
-        }
-    )
+private fun uriLabel(context: Context, uriStr: String): String {
+    return try {
+        val uri = Uri.parse(uriStr)
+        val c = context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+        c?.use {
+            if (it.moveToFirst()) {
+                val idx = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0) it.getString(idx) ?: uriStr
+                else uriStr
+            } else uriStr
+        } ?: uriStr
+    } catch (_: Exception) {
+        uriStr
+    }
 }
 
 @Composable
-private fun AddDialog(dir: String, onDismiss: () -> Unit, onConfirm: (String, Int) -> Unit) {
+private fun AddDialog(dirUri: String, onDismiss: () -> Unit, onConfirm: (String, Int) -> Unit) {
     var url by remember { mutableStateOf("") }
     var threads by remember { mutableIntStateOf(4) }
     AlertDialog(
@@ -312,7 +315,7 @@ private fun AddDialog(dir: String, onDismiss: () -> Unit, onConfirm: (String, In
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Folder, null, Modifier.size(16.dp))
                     Text(
-                        dir,
+                        dirUri,
                         Modifier.padding(start = 6.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
