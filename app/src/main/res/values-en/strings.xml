@@ -395,4 +395,7 @@
     <string name="file_confirm_discard">Unsaved changes will be lost. Discard?</string>
     <string name="file_more">More</string>
     <string name="file_import">Import</string>
+    <string name="file_path_edit_title">Edit path</string>
+    <string name="file_path">Path</string>
+    <string name="file_oss_unsupported">OSS browser not supported yet</string>
 </resources>

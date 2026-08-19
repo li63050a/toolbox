@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Article
@@ -55,8 +54,6 @@ private data class Feature(
 private val features = listOf(
     Feature(Routes.FILES, R.string.home_files_title, R.string.home_files_desc, Icons.Filled.FolderOpen),
     Feature(Routes.SSH, R.string.home_ssh_title, R.string.home_ssh_desc, Icons.Filled.Terminal),
-    Feature(Routes.FTP, R.string.home_ftp_title, R.string.home_ftp_desc, Icons.Filled.Folder),
-    Feature(Routes.OSS, R.string.home_oss_title, R.string.home_oss_desc, Icons.Filled.Cloud),
     Feature(Routes.VPN, R.string.home_vpn_title, R.string.home_vpn_desc, Icons.Filled.Dns),
     Feature(Routes.LOG, R.string.home_log_title, R.string.home_log_desc, Icons.Filled.Article),
     Feature(Routes.DECIBEL, R.string.home_decibel_title, R.string.home_decibel_desc, Icons.Filled.GraphicEq),

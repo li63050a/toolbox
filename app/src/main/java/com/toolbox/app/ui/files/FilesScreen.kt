@@ -9,34 +9,49 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -44,12 +59,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -59,15 +76,29 @@ import com.toolbox.app.R
 import com.toolbox.app.RepositoryProvider
 import com.toolbox.app.data.ConnectionConfig
 import com.toolbox.app.ui.filebrowser.FileBrowserScreen
-import com.toolbox.app.ui.ftp.FtpFilesScreen
-import com.toolbox.app.ui.oss.OssFilesScreen
-import com.toolbox.app.ui.ssh.SshFilesScreen
+import com.toolbox.app.ui.filebrowser.FileOps
+import com.toolbox.app.ftp.FtpClient
+import com.toolbox.app.ftp.FtpFileOps
+import com.toolbox.app.log.Log
+import com.toolbox.app.ssh.SftpFileOps
+import com.toolbox.app.ssh.SshEngine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 sealed interface FsTarget {
     data object Local : FsTarget
     data class Ssh(val cfg: ConnectionConfig.Ssh) : FsTarget
     data class Ftp(val cfg: ConnectionConfig.Ftp) : FsTarget
     data class Oss(val cfg: ConnectionConfig) : FsTarget
+
+    fun label(): String = when (this) {
+        is Local -> "本地"
+        is Ssh -> "SSH · ${cfg.name.ifEmpty { cfg.host }}"
+        is Ftp -> "FTP · ${cfg.name.ifEmpty { cfg.host }}"
+        is Oss -> "OSS · ${cfg.name.ifEmpty { "对象存储" }}"
+    }
 }
 
 private fun hasAllFilesAccess(context: Context): Boolean =
@@ -95,15 +126,31 @@ private fun requestAllFilesAccess(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val all by RepositoryProvider.connections.connections.collectAsState(initial = emptyList())
-    val sshList = all.filterIsInstance<ConnectionConfig.Ssh>()
-    val ftpList = all.filterIsInstance<ConnectionConfig.Ftp>()
-    val ossList = all.filter { it is ConnectionConfig.S3 || it is ConnectionConfig.Oss || it is ConnectionConfig.Cos }
+    val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    val repo = RepositoryProvider.connections
+    val all by repo.connections.collectAsState(initial = emptyList())
 
-    var target by remember { mutableStateOf<FsTarget>(FsTarget.Local) }
+    var leftTarget by remember { mutableStateOf<FsTarget>(FsTarget.Local) }
+    var leftPath by remember { mutableStateOf("/") }
+    var leftOps by remember { mutableStateOf<FileOps?>(null) }
+    var leftLoading by remember { mutableStateOf(false) }
+    var leftError by remember { mutableStateOf<String?>(null) }
+
+    var rightTarget by remember { mutableStateOf<FsTarget>(FsTarget.Local) }
+    var rightPath by remember { mutableStateOf("/") }
+    var rightOps by remember { mutableStateOf<FileOps?>(null) }
+    var rightLoading by remember { mutableStateOf(false) }
+    var rightError by remember { mutableStateOf<String?>(null) }
+
+    var editingPane by remember { mutableStateOf<String?>(null) }
+    var pathInput by remember { mutableStateOf("") }
+
+    val drawerState = androidx.compose.material3.rememberDrawerState(initialValue = androidx.compose.material3.DrawerValue.Closed)
     var checkTick by remember { mutableStateOf(0) }
     var autoRequested by remember { mutableStateOf(false) }
 
@@ -120,108 +167,292 @@ fun FilesScreen(onBack: () -> Unit) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
-    LaunchedEffect(checkTick, target) {
-        if (target is FsTarget.Local && !hasAllFilesAccess(context) && !autoRequested) {
+    LaunchedEffect(leftTarget, rightTarget) {
+        val hasLocal = leftTarget is FsTarget.Local || rightTarget is FsTarget.Local
+        if (hasLocal && !hasAllFilesAccess(context) && !autoRequested) {
             autoRequested = true
             requestAllFilesAccess(context, runtimePermLauncher)
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        FsSelectorBar(
-            sshList = sshList,
-            ftpList = ftpList,
-            ossList = ossList,
-            target = target,
-            onSelect = { target = it }
-        )
-        Box(Modifier.weight(1f)) {
-            when (val t = target) {
-                FsTarget.Local -> {
-                    if (hasAllFilesAccess(context)) {
-                        val ops = remember(context) { LocalFileOps(context) }
-                        FileBrowserScreen(ops = ops, onBack = onBack)
-                    } else {
-                        PermissionGate(
-                            onRetry = {
-                                autoRequested = false
-                                checkTick++
+    fun refreshLeft() {
+        leftLoading = true
+        leftError = null
+        leftOps = null
+        when (val t = leftTarget) {
+            is FsTarget.Local -> {
+                leftOps = com.toolbox.app.ui.files.LocalFileOps(context)
+                leftLoading = false
+            }
+            is FsTarget.Ssh -> {
+                scope.launch {
+                    withContext(Dispatchers.IO) { SshEngine(t.cfg).connect() }
+                        .onSuccess { session ->
+                            leftOps = SftpFileOps(context, session, t.cfg.name.ifEmpty { t.cfg.host })
+                            leftLoading = false
+                            leftError = null
+                        }
+                        .onFailure {
+                            leftError = it.message
+                            leftLoading = false
+                            Log.e("SFTP", "连接失败", it)
+                        }
+                }
+            }
+            is FsTarget.Ftp -> {
+                scope.launch {
+                    withContext(Dispatchers.IO) { FtpClient(t.cfg).connect() }
+                        .onSuccess { client ->
+                            leftOps = FtpFileOps(context, client, t.cfg.name.ifEmpty { t.cfg.host })
+                            leftLoading = false
+                            leftError = null
+                        }
+                        .onFailure {
+                            leftError = it.message
+                            leftLoading = false
+                            Log.e("FTP", "连接失败", it)
+                        }
+                }
+            }
+            is FsTarget.Oss -> {
+                leftOps = null
+                leftLoading = false
+                leftError = context.getString(R.string.file_oss_unsupported)
+            }
+        }
+    }
+
+    fun refreshRight() {
+        rightLoading = true
+        rightError = null
+        rightOps = null
+        when (val t = rightTarget) {
+            is FsTarget.Local -> {
+                rightOps = com.toolbox.app.ui.files.LocalFileOps(context)
+                rightLoading = false
+            }
+            is FsTarget.Ssh -> {
+                scope.launch {
+                    withContext(Dispatchers.IO) { SshEngine(t.cfg).connect() }
+                        .onSuccess { session ->
+                            rightOps = SftpFileOps(context, session, t.cfg.name.ifEmpty { t.cfg.host })
+                            rightLoading = false
+                            rightError = null
+                        }
+                        .onFailure {
+                            rightError = it.message
+                            rightLoading = false
+                            Log.e("SFTP", "连接失败", it)
+                        }
+                }
+            }
+            is FsTarget.Ftp -> {
+                scope.launch {
+                    withContext(Dispatchers.IO) { FtpClient(t.cfg).connect() }
+                        .onSuccess { client ->
+                            rightOps = FtpFileOps(context, client, t.cfg.name.ifEmpty { t.cfg.host })
+                            rightLoading = false
+                            rightError = null
+                        }
+                        .onFailure {
+                            rightError = it.message
+                            rightLoading = false
+                            Log.e("FTP", "连接失败", it)
+                        }
+                }
+            }
+            is FsTarget.Oss -> {
+                rightOps = null
+                rightLoading = false
+                rightError = context.getString(R.string.file_oss_unsupported)
+            }
+        }
+    }
+
+    LaunchedEffect(leftTarget) { refreshLeft() }
+    LaunchedEffect(rightTarget) { refreshRight() }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Text(
+                    stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(16.dp)
+                )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.files_local)) },
+                    leadingIcon = { Icon(Icons.Filled.FolderOpen, null) },
+                    onClick = {
+                        leftTarget = FsTarget.Local
+                        leftPath = "/"
+                        rightTarget = FsTarget.Local
+                        rightPath = "/"
+                        scope.launch { drawerState.close() }
+                    }
+                )
+                val sshList = all.filterIsInstance<ConnectionConfig.Ssh>()
+                val ftpList = all.filterIsInstance<ConnectionConfig.Ftp>()
+                val ossList = all.filter { it is ConnectionConfig.S3 || it is ConnectionConfig.Oss || it is ConnectionConfig.Cos }
+                if (sshList.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text(
+                        stringResource(R.string.files_sec_ssh),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    sshList.forEach { conn ->
+                        DropdownMenuItem(
+                            text = { Text(conn.name.ifEmpty { conn.host }) },
+                            leadingIcon = { Icon(Icons.Filled.Terminal, null) },
+                            onClick = {
+                                leftTarget = FsTarget.Ssh(conn)
+                                leftPath = "/"
+                                scope.launch { drawerState.close() }
                             }
                         )
                     }
                 }
-
-                is FsTarget.Ssh -> SshFilesScreen(t.cfg, onBack = { target = FsTarget.Local })
-                is FsTarget.Ftp -> FtpFilesScreen(t.cfg, onBack = { target = FsTarget.Local })
-                is FsTarget.Oss -> OssFilesScreen(t.cfg, onBack = { target = FsTarget.Local })
-            }
-        }
-    }
-}
-
-@Composable
-private fun FsSelectorBar(
-    sshList: List<ConnectionConfig.Ssh>,
-    ftpList: List<ConnectionConfig.Ftp>,
-    ossList: List<ConnectionConfig>,
-    target: FsTarget,
-    onSelect: (FsTarget) -> Unit
-) {
-    var open by remember { mutableStateOf(false) }
-
-    @Composable
-    fun label(t: FsTarget): String = when (t) {
-        FsTarget.Local -> stringResource(R.string.files_local)
-        is FsTarget.Ssh -> t.cfg.name.ifEmpty { t.cfg.host }
-        is FsTarget.Ftp -> t.cfg.name.ifEmpty { t.cfg.host }
-        is FsTarget.Oss -> t.cfg.name.ifEmpty { "OSS" }
-    }
-
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box {
-                FilledTonalButton(onClick = { open = true }) {
-                    Icon(Icons.Filled.FolderOpen, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(label(target), maxLines = 1, fontWeight = FontWeight.SemiBold)
-                    Icon(Icons.Filled.ArrowDropDown, null)
-                }
-                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.files_local)) },
-                        leadingIcon = { Icon(Icons.Filled.FolderOpen, null) },
-                        onClick = { open = false; onSelect(FsTarget.Local) }
+                if (ftpList.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text(
+                        "FTP/FTPS",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
                     )
-                    if (sshList.isNotEmpty()) {
-                        SectionHeader(stringResource(R.string.files_sec_ssh))
-                        sshList.forEach { c ->
-                            DropdownMenuItem(
-                                text = { Text(c.name.ifEmpty { c.host }) },
-                                leadingIcon = { Icon(Icons.Filled.Terminal, null) },
-                                onClick = { open = false; onSelect(FsTarget.Ssh(c)) }
+                    ftpList.forEach { conn ->
+                        DropdownMenuItem(
+                            text = { Text(conn.name.ifEmpty { conn.host }) },
+                            leadingIcon = { Icon(Icons.Filled.Folder, null) },
+                            onClick = {
+                                leftTarget = FsTarget.Ftp(conn)
+                                leftPath = "/"
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+                }
+                if (ossList.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text(
+                        stringResource(R.string.files_sec_oss),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    ossList.forEach { conn ->
+                        DropdownMenuItem(
+                            text = { Text(conn.name.ifEmpty { "OSS" }) },
+                            leadingIcon = { Icon(Icons.Filled.Cloud, null) },
+                            onClick = {
+                                leftTarget = FsTarget.Oss(conn)
+                                leftPath = "/"
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(stringResource(R.string.home_files_title)) },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.file_back)) }
+                    }
+                )
+            }
+        ) { padding ->
+            Row(Modifier.fillMaxSize().padding(padding)) {
+                Column(Modifier.weight(1f)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = leftTarget.label(),
+                            modifier = Modifier.padding(end = 8.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = leftPath,
+                            modifier = Modifier.weight(1f)
+                                .clickable { editingPane = "left"; pathInput = leftPath },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        IconButton(onClick = {
+                            leftPath = File(leftPath).parent ?: "/"
+                        }) {
+                            Icon(Icons.Filled.ArrowDropUp, contentDescription = stringResource(R.string.file_back))
+                        }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        if (leftOps != null) {
+                            FileBrowserScreen(
+                                ops = leftOps!!,
+                                onBack = {},
+                                path = leftPath,
+                                onPathChange = { leftPath = it },
+                                showAppBar = false
+                            )
+                        } else if (leftLoading) {
+                            CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        } else {
+                            Text(
+                                text = leftError ?: stringResource(R.string.file_empty),
+                                modifier = Modifier.align(Alignment.Center)
                             )
                         }
                     }
-                    if (ftpList.isNotEmpty()) {
-                        SectionHeader(stringResource(R.string.files_sec_ftp))
-                        ftpList.forEach { c ->
-                            DropdownMenuItem(
-                                text = { Text(c.name.ifEmpty { c.host }) },
-                                leadingIcon = { Icon(Icons.Filled.Folder, null) },
-                                onClick = { open = false; onSelect(FsTarget.Ftp(c)) }
-                            )
+                }
+                VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = rightTarget.label(),
+                            modifier = Modifier.padding(end = 8.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = rightPath,
+                            modifier = Modifier.weight(1f)
+                                .clickable { editingPane = "right"; pathInput = rightPath },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        IconButton(onClick = {
+                            rightPath = File(rightPath).parent ?: "/"
+                        }) {
+                            Icon(Icons.Filled.ArrowDropUp, contentDescription = stringResource(R.string.file_back))
                         }
                     }
-                    if (ossList.isNotEmpty()) {
-                        SectionHeader(stringResource(R.string.files_sec_oss))
-                        ossList.forEach { c ->
-                            DropdownMenuItem(
-                                text = { Text(c.name.ifEmpty { "OSS" }) },
-                                leadingIcon = { Icon(Icons.Filled.Cloud, null) },
-                                onClick = { open = false; onSelect(FsTarget.Oss(c)) }
+                    Box(Modifier.fillMaxSize()) {
+                        if (rightOps != null) {
+                            FileBrowserScreen(
+                                ops = rightOps!!,
+                                onBack = {},
+                                path = rightPath,
+                                onPathChange = { rightPath = it },
+                                showAppBar = false
+                            )
+                        } else if (rightLoading) {
+                            CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        } else {
+                            Text(
+                                text = rightError ?: stringResource(R.string.file_empty),
+                                modifier = Modifier.align(Alignment.Center)
                             )
                         }
                     }
@@ -229,57 +460,30 @@ private fun FsSelectorBar(
             }
         }
     }
-}
 
-@Composable
-private fun SectionHeader(text: String) {
-    HorizontalDivider(Modifier.padding(vertical = 4.dp))
-    Text(
-        text,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-    )
-}
-
-@Composable
-private fun PermissionGate(onRetry: () -> Unit) {
-    val context = LocalContext.current
-    val runtimeLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { }
-    Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
-    ) {
-        Icon(
-            Icons.Filled.Lock,
-            null,
-            Modifier.size(56.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            stringResource(R.string.files_permission_title),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 16.dp)
-        )
-        Text(
-            stringResource(R.string.files_permission_desc),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        Button(
-            onClick = {
-                onRetry()
-                requestAllFilesAccess(context, runtimeLauncher)
+    if (editingPane != null) {
+        AlertDialog(
+            onDismissRequest = { editingPane = null },
+            title = { Text(stringResource(R.string.file_path_edit_title)) },
+            text = {
+                OutlinedTextField(
+                    value = pathInput,
+                    onValueChange = { pathInput = it },
+                    label = { Text(stringResource(R.string.file_path)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
             },
-            modifier = Modifier.padding(top = 24.dp)
-        ) { Text(stringResource(R.string.files_grant)) }
-        TextButton(onClick = onRetry, modifier = Modifier.padding(top = 4.dp)) {
-            Text(stringResource(R.string.files_retry))
-        }
+            confirmButton = {
+                TextButton(onClick = {
+                    if (editingPane == "left") leftPath = pathInput else rightPath = pathInput
+                    editingPane = null
+                    pathInput = ""
+                }) { Text(stringResource(R.string.file_ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingPane = null; pathInput = "" }) { Text(stringResource(R.string.file_cancel)) }
+            }
+        )
     }
 }

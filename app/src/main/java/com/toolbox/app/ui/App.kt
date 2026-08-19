@@ -11,7 +11,6 @@ import com.toolbox.app.ui.files.FilesScreen
 import com.toolbox.app.ui.ftp.FtpHomeScreen
 import com.toolbox.app.ui.home.HomeScreen
 import com.toolbox.app.ui.log.LogScreen
-import com.toolbox.app.ui.oss.OssHomeScreen
 import com.toolbox.app.ui.settings.SettingsScreen
 import com.toolbox.app.ui.ssh.SshHomeScreen
 import com.toolbox.app.ui.vpn.VpnScreen
@@ -22,8 +21,6 @@ object Routes {
     const val DECIBEL = "decibel"
     const val DOWNLOAD = "download"
     const val SSH = "ssh"
-    const val FTP = "ftp"
-    const val OSS = "oss"
     const val VPN = "vpn"
     const val LOG = "log"
     const val SETTINGS = "settings"
@@ -38,8 +35,6 @@ fun App(repo: SettingsRepository) {
         composable(Routes.DECIBEL) { DecibelScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.DOWNLOAD) { DownloaderScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SSH) { SshHomeScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.FTP) { FtpHomeScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.OSS) { OssHomeScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.VPN) { VpnScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.LOG) { LogScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SETTINGS) { SettingsScreen(repo = repo, onBack = { navController.popBackStack() }) }

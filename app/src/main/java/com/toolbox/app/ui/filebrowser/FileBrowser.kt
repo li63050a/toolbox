@@ -6,8 +6,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -50,6 +49,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -111,13 +111,16 @@ interface FileOps {
 @Composable
 fun FileBrowserScreen(
     ops: FileOps,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    path: String? = null,
+    onPathChange: ((String) -> Unit)? = null,
+    showAppBar: Boolean = true
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
-    var currentPath by remember { mutableStateOf(ops.rootPath()) }
+    var currentPath by remember { mutableStateOf(path ?: ops.rootPath()) }
     var entries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var transferring by remember { mutableStateOf(false) }
@@ -135,6 +138,9 @@ fun FileBrowserScreen(
     var editDirty by remember { mutableStateOf(false) }
     var lastClickedPathCont by remember { mutableStateOf("") }
 
+    var showPathEdit by remember { mutableStateOf(false) }
+    var pathEditInput by remember { mutableStateOf("") }
+
     fun toast(msg: String) {
         scope.launch { snackbar.showSnackbar(msg) }
     }
@@ -149,7 +155,20 @@ fun FileBrowserScreen(
         }
     }
 
+    fun navigateTo(newPath: String) {
+        currentPath = newPath
+        onPathChange?.invoke(newPath)
+        refresh()
+    }
+
     LaunchedEffect(Unit) { refresh() }
+
+    LaunchedEffect(path) {
+        if (path != null && path != currentPath) {
+            currentPath = path
+            refresh()
+        }
+    }
 
     val uploadLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -187,31 +206,7 @@ fun FileBrowserScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            if (showEdit == null) {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(ops.displayName(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                currentPath,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.file_back)) }
-                    },
-                    actions = {
-                        IconButton(onClick = {
-                            lastClickedPathCont = currentPath
-                            uploadLauncher.launch(arrayOf("*/*"))
-                        }) { Icon(Icons.Filled.Upload, stringResource(R.string.file_upload)) }
-                        IconButton(onClick = { showNewDir = true }) { Icon(Icons.Filled.CreateNewFolder, stringResource(R.string.file_new_dir)) }
-                    }
-                )
-            } else {
+            if (showEdit != null) {
                 TopAppBar(
                     title = { Text(stringResource(R.string.file_editor)) },
                     navigationIcon = {
@@ -239,6 +234,34 @@ fun FileBrowserScreen(
                                 }
                             }) { Icon(Icons.Filled.Save, stringResource(R.string.file_ok)) }
                         }
+                    }
+                )
+            } else if (showAppBar) {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(ops.displayName(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                currentPath,
+                                modifier = Modifier.clickable {
+                                    pathEditInput = currentPath
+                                    showPathEdit = true
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.file_back)) }
+                    },
+                    actions = {
+                        IconButton(onClick = {
+                            lastClickedPathCont = currentPath
+                            uploadLauncher.launch(arrayOf("*/*"))
+                        }) { Icon(Icons.Filled.Upload, stringResource(R.string.file_upload)) }
+                        IconButton(onClick = { showNewDir = true }) { Icon(Icons.Filled.CreateNewFolder, stringResource(R.string.file_new_dir)) }
                     }
                 )
             }
@@ -273,8 +296,7 @@ fun FileBrowserScreen(
                                 supportsChmod = ops.supportsChmod,
                                 onClick = {
                                     if (entry.isDirectory) {
-                                        currentPath = entry.path
-                                        refresh()
+                                        navigateTo(entry.path)
                                     } else if (ops.isLocal) {
                                         openLocalFile(context, entry.path)?.let { intent ->
                                             runCatching { context.startActivity(intent) }
@@ -326,6 +348,36 @@ fun FileBrowserScreen(
                 }
             }
         }
+    }
+
+    if (showPathEdit) {
+        AlertDialog(
+            onDismissRequest = { showPathEdit = false },
+            title = { Text(stringResource(R.string.file_path_edit_title)) },
+            text = {
+                OutlinedTextField(
+                    value = pathEditInput,
+                    onValueChange = { pathEditInput = it },
+                    label = { Text(stringResource(R.string.file_path)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (path == null) {
+                        currentPath = pathEditInput
+                        refresh()
+                    } else {
+                        onPathChange?.invoke(pathEditInput)
+                    }
+                    showPathEdit = false
+                }) { Text(stringResource(R.string.file_ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPathEdit = false }) { Text(stringResource(R.string.file_cancel)) }
+            }
+        )
     }
 
     if (showNewDir) {
@@ -460,7 +512,7 @@ private fun FileRow(
         ) {
             Icon(
                 if (entry.isDirectory) Icons.Filled.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
-                contentDescription = null,
+                null,
                 tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
             Column(Modifier.weight(1f)) {
