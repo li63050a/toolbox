@@ -97,50 +97,27 @@ fun ShizukuScreen(onBack: () -> Unit) {
         output = ""
         Thread {
             try {
-                // 通过 Shizuku binder 执行命令
-                val binder = Shizuku.getBinder() ?: throw IllegalStateException("Binder not available")
-                val parcel = android.os.Parcel.obtain()
-                val reply = android.os.Parcel.obtain()
-                try {
-                    parcel.writeInterfaceToken("moe.shizuku.server.IShizukuService")
-                    parcel.writeStringArray(arrayOf("sh", "-c", cmd))
-                    parcel.writeStringArray(null)
-                    parcel.writeString(null)
-                    binder.transact(3, parcel, reply, 0)
-                    reply.readException()
-                    val processBinder = reply.readStrongBinder()
-                    if (processBinder != null) {
-                        // 获取进程的输出流
-                        val processParcel = android.os.Parcel.obtain()
-                        val processReply = android.os.Parcel.obtain()
-                        try {
-                            processParcel.writeInterfaceToken("moe.shizuku.server.IRemoteProcess")
-                            processBinder.transact(1, processParcel, processReply, 0)
-                            processReply.readException()
-                            val pfd = processReply.readParcelable<android.os.ParcelFileDescriptor>(android.os.ParcelFileDescriptor::class.java.classLoader)
-                            if (pfd != null) {
-                                val fd = pfd.fd
-                                val inputStream = java.io.FileInputStream(fd)
-                                val reader = BufferedReader(InputStreamReader(inputStream))
-                                val sb = StringBuilder()
-                                var line: String?
-                                while (reader.readLine().also { line = it } != null) sb.append(line).append("\n")
-                                output = sb.toString().trim()
-                                if (output.isEmpty()) output = "(无输出)"
-                                inputStream.close()
-                                pfd.detachFd()
-                            }
-                        } finally {
-                            processParcel.recycle()
-                            processReply.recycle()
-                        }
-                    } else {
-                        output = "无法创建进程"
-                    }
-                } finally {
-                    parcel.recycle()
-                    reply.recycle()
-                }
+                // 使用反射调用 Shizuku.newProcess
+                val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+                val newProcessMethod = shizukuClass.getDeclaredMethod(
+                    "newProcess",
+                    Array<String>::class.java,
+                    Array<String>::class.java,
+                    String::class.java
+                )
+                newProcessMethod.isAccessible = true
+                @Suppress("UNCHECKED_CAST")
+                val process = newProcessMethod.invoke(null, arrayOf("sh", "-c", cmd), emptyArray<String>(), null) as java.io.Process
+                val reader = BufferedReader(InputStreamReader(process.getInputStream()))
+                val errReader = BufferedReader(InputStreamReader(process.errorStream))
+                val sb = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) sb.append(line).append("\n")
+                while (errReader.readLine().also { line = it } != null) sb.append("ERR: ").append(line).append("\n")
+                process.waitFor()
+                output = sb.toString().trim()
+                if (output.isEmpty()) output = "(无输出)"
+                process.destroy()
             } catch (e: Exception) {
                 Log.e(TAG, "命令执行失败", e)
                 output = "Error: ${e.message}"
