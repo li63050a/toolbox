@@ -12,6 +12,7 @@ import java.io.File
 class LocalFileOps(private val context: Context) : FileOps {
 
     override val isLocal: Boolean get() = true
+    override val supportsChmod: Boolean get() = true
 
     override fun rootPath(): String = "/"
 
@@ -82,20 +83,31 @@ class LocalFileOps(private val context: Context) : FileOps {
             }
         }
 
-    override suspend fun upload(remoteDir: String, localUri: Uri, progress: (Float) -> Unit): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                context.contentResolver.openInputStream(localUri)?.use { inp ->
-                    File(remoteDir).outputStream().use { out ->
-                        val buf = ByteArray(64 * 1024)
-                        while (true) {
-                            val n = inp.read(buf)
-                            if (n < 0) break
-                            out.write(buf, 0, n)
-                        }
+override suspend fun upload(remoteDir: String, localUri: Uri, progress: (Float) -> Unit): Result<Unit> =
+    withContext(Dispatchers.IO) {
+        runCatching {
+            context.contentResolver.openInputStream(localUri)?.use { inp ->
+                File(remoteDir).outputStream().use { out ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = inp.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
                     }
-                } ?: throw IllegalStateException("无法读取源文件")
-                progress(1f)
+                }
+            } ?: throw IllegalStateException("无法读取源文件")
+            progress(1f)
+        }
+    }
+
+    override suspend fun chmod(path: String, mode: Int): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val modeStr = String.format("%03o", mode)
+            val p = ProcessBuilder("chmod", modeStr, path).start()
+            val ok = p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            if (!ok || p.exitValue() != 0) {
+                throw IllegalStateException("chmod $modeStr $path failed (exit=${if (ok) p.exitValue() else "timeout"})")
             }
         }
+    }
 }

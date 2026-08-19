@@ -385,4 +385,14 @@
     <string name="dl_state_done">Done</string>
     <string name="dl_state_failed">Failed: %1$s</string>
     <string name="dl_unknown_error">Unknown error</string>
+    <string name="file_open">Open</string>
+    <string name="file_edit">Edit</string>
+    <string name="file_editor">Edit file</string>
+    <string name="file_download">Download</string>
+    <string name="file_saved">Saved</string>
+    <string name="file_edit_fail">Read failed: %1$s</string>
+    <string name="file_save_fail">Save failed: %1$s</string>
+    <string name="file_confirm_discard">Unsaved changes will be lost. Discard?</string>
+    <string name="file_more">More</string>
+    <string name="file_import">Import</string>
 </resources>

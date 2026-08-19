@@ -385,4 +385,14 @@
     <string name="dl_state_done">已完成</string>
     <string name="dl_state_failed">失败: %1$s</string>
     <string name="dl_unknown_error">未知错误</string>
+    <string name="file_open">打开</string>
+    <string name="file_edit">编辑</string>
+    <string name="file_editor">编辑文件</string>
+    <string name="file_download">下载</string>
+    <string name="file_saved">已保存</string>
+    <string name="file_edit_fail">读取失败: %1$s</string>
+    <string name="file_save_fail">保存失败: %1$s</string>
+    <string name="file_confirm_discard">未保存的修改将丢失，确定放弃吗？</string>
+    <string name="file_more">更多</string>
+    <string name="file_import">导入</string>
 </resources>

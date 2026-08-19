@@ -6,8 +6,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,7 +27,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -66,7 +69,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** 用系统应用打开本地文件（FileProvider） */
 private fun openLocalFile(context: Context, path: String): android.content.Intent? = runCatching {
     val uri = androidx.core.content.FileProvider.getUriForFile(
         context,
@@ -89,24 +91,15 @@ data class FileEntry(
     val modified: Long
 )
 
-/**
- * 文件操作抽象，由各后端（SFTP/FTP/对象存储）实现。
- * 所有方法在 IO 线程执行，进度回调在调用线程。
- */
 interface FileOps {
-    /** 列表；rootPath 由 backend 决定 */
     suspend fun list(path: String): Result<List<FileEntry>>
     suspend fun mkdir(path: String): Result<Unit>
     suspend fun delete(path: String): Result<Unit>
     suspend fun rename(oldPath: String, newName: String): Result<Unit>
-    /** url 已经带上了远程路径 */
     suspend fun download(remotePath: String, localUri: Uri, progress: (Float) -> Unit): Result<Unit>
     suspend fun upload(remoteDir: String, localUri: Uri, progress: (Float) -> Unit): Result<Unit>
-    /** 是否支持修改权限（仅 SFTP 支持） */
     val supportsChmod: Boolean get() = false
-    /** 是否为本地文件系统（隐藏上传/下载，点击文件直接打开） */
     val isLocal: Boolean get() = false
-    /** 修改权限，mode 为 3 位八进制值（如 0o755） */
     suspend fun chmod(path: String, mode: Int): Result<Unit> =
         Result.failure(UnsupportedOperationException("当前后端不支持修改权限"))
     fun rootPath(): String
@@ -136,6 +129,11 @@ fun FileBrowserScreen(
     var chmodText by remember { mutableStateOf("") }
     var newDirName by remember { mutableStateOf("") }
     var renameTo by remember { mutableStateOf("") }
+
+    var showEdit by remember { mutableStateOf<FileEntry?>(null) }
+    var editText by remember { mutableStateOf("") }
+    var editDirty by remember { mutableStateOf(false) }
+    var lastClickedPathCont by remember { mutableStateOf("") }
 
     fun toast(msg: String) {
         scope.launch { snackbar.showSnackbar(msg) }
@@ -169,7 +167,6 @@ fun FileBrowserScreen(
         }
     }
 
-    var lastClickedPathCont by remember { mutableStateOf("") }
     val downloadLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
@@ -190,88 +187,142 @@ fun FileBrowserScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(ops.displayName(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            currentPath,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.file_back)) }
-                },
-                actions = {
-                    IconButton(onClick = { refresh() }) { Icon(Icons.Filled.Refresh, stringResource(R.string.file_refresh)) }
-                    if (!ops.isLocal) {
+            if (showEdit == null) {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(ops.displayName(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                currentPath,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.file_back)) }
+                    },
+                    actions = {
                         IconButton(onClick = {
                             lastClickedPathCont = currentPath
                             uploadLauncher.launch(arrayOf("*/*"))
                         }) { Icon(Icons.Filled.Upload, stringResource(R.string.file_upload)) }
+                        IconButton(onClick = { showNewDir = true }) { Icon(Icons.Filled.CreateNewFolder, stringResource(R.string.file_new_dir)) }
                     }
-                    IconButton(onClick = { showNewDir = true }) { Icon(Icons.Filled.CreateNewFolder, stringResource(R.string.file_new_dir)) }
-                }
-            )
+                )
+            } else {
+                TopAppBar(
+                    title = { Text(stringResource(R.string.file_editor)) },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            showEdit = null
+                            editText = ""
+                            editDirty = false
+                        }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.file_cancel)) }
+                    },
+                    actions = {
+                        if (editDirty) {
+                            IconButton(onClick = {
+                                val entry = showEdit!!
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        File(entry.path).writeText(editText, Charsets.UTF_8)
+                                        toast(context.getString(R.string.file_saved))
+                                    } catch (e: Exception) {
+                                        toast(context.getString(R.string.file_save_fail, e.message))
+                                    }
+                                    editDirty = false
+                                    showEdit = null
+                                    editText = ""
+                                    withContext(Dispatchers.Main) { refresh() }
+                                }
+                            }) { Icon(Icons.Filled.Save, stringResource(R.string.file_ok)) }
+                        }
+                    }
+                )
+            }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when {
-                loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                entries.isEmpty() -> Text(
-                    stringResource(R.string.file_empty),
-                    Modifier.align(Alignment.Center),
-                    style = MaterialTheme.typography.bodyLarge
+        if (showEdit != null) {
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                OutlinedTextField(
+                    value = editText,
+                    onValueChange = { editText = it; editDirty = true },
+                    modifier = Modifier.fillMaxSize(),
+                    textStyle = MaterialTheme.typography.bodyMedium
                 )
-
-                else -> LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 4.dp)
-                ) {
-                    itemsIndexed(entries, key = { i, e -> e.path.ifBlank { "item_$i" } }) { _, entry ->
-                        FileRow(
-                            entry = entry,
-                            onClick = {
-                                if (entry.isDirectory) {
-                                    currentPath = entry.path
-                                    refresh()
-                                } else if (ops.isLocal) {
-                                    openLocalFile(context, entry.path)?.let { intent ->
-                                        runCatching { context.startActivity(intent) }
-                                            .onFailure {
-                                                toast(context.getString(R.string.file_open_fail, it.message))
+            }
+        } else {
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                when {
+                    loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    entries.isEmpty() -> Text(
+                        stringResource(R.string.file_empty),
+                        Modifier.align(Alignment.Center),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    else -> LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 4.dp)
+                    ) {
+                        itemsIndexed(entries, key = { i, e -> e.path.ifBlank { "item_$i" } }) { _, entry ->
+                            FileRow(
+                                entry = entry,
+                                isLocal = ops.isLocal,
+                                supportsChmod = ops.supportsChmod,
+                                onClick = {
+                                    if (entry.isDirectory) {
+                                        currentPath = entry.path
+                                        refresh()
+                                    } else if (ops.isLocal) {
+                                        openLocalFile(context, entry.path)?.let { intent ->
+                                            runCatching { context.startActivity(intent) }
+                                                .onFailure {
+                                                    toast(context.getString(R.string.file_open_fail, it.message))
+                                                }
+                                        } ?: toast(context.getString(R.string.file_open_fail, "FileProvider"))
+                                    } else {
+                                        lastClickedPathCont = entry.path
+                                        downloadLauncher.launch(entry.name)
+                                    }
+                                },
+                                onEdit = {
+                                    if (!entry.isDirectory && ops.isLocal) {
+                                        scope.launch(Dispatchers.IO) {
+                                            try {
+                                                val t = File(entry.path).readText(Charsets.UTF_8)
+                                                editText = t
+                                                editDirty = false
+                                                showEdit = entry
+                                            } catch (e: Exception) {
+                                                toast(context.getString(R.string.file_edit_fail, e.message))
                                             }
-                                    } ?: toast(context.getString(R.string.file_open_fail, "FileProvider"))
-                                } else {
-                                    lastClickedPathCont = entry.path
-                                    downloadLauncher.launch(entry.name)
+                                        }
+                                    }
+                                },
+                                onRename = { showRename = entry },
+                                onDelete = { showDelete = entry },
+                                onChmod = {
+                                    showChmod = entry
+                                    chmodText = ""
                                 }
-                            },
-                            onRename = { showRename = entry },
-                            onDelete = { showDelete = entry },
-                            chmodEnabled = ops.supportsChmod,
-                            onChmod = {
-                                showChmod = entry
-                                chmodText = ""
-                            }
-                        )
+                            )
+                        }
                     }
                 }
-            }
-            if (transferring) {
-                Column(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    LinearProgressIndicator(progress = { progress }, Modifier.fillMaxWidth())
-                    Text(
-                        stringResource(R.string.file_transferring, (progress * 100).toInt()),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+                if (transferring) {
+                    Column(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        LinearProgressIndicator(progress = { progress }, Modifier.fillMaxWidth())
+                        Text(
+                            stringResource(R.string.file_transferring, (progress * 100).toInt()),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
                 }
             }
         }
@@ -390,27 +441,26 @@ private fun SimpleInputDialog(
 @Composable
 private fun FileRow(
     entry: FileEntry,
+    isLocal: Boolean,
+    supportsChmod: Boolean,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
-    chmodEnabled: Boolean,
     onChmod: () -> Unit
 ) {
-    var menu by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
     Box {
         Row(
             Modifier.fillMaxWidth()
-                .then(
-                    if (chmodEnabled) Modifier.combinedClickable(onClick = onClick, onLongClick = { menu = true })
-                    else Modifier.clickable(onClick = onClick)
-                )
+                .combinedClickable(onClick = onClick, onLongClick = { menuExpanded = true })
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
                 if (entry.isDirectory) Icons.Filled.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
-                null,
+                contentDescription = null,
                 tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
             Column(Modifier.weight(1f)) {
@@ -425,17 +475,50 @@ private fun FileRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onRename, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Filled.Edit, stringResource(R.string.file_rename), Modifier.size(18.dp))
-            }
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Filled.Delete, stringResource(R.string.file_delete), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.file_more))
             }
         }
-        if (chmodEnabled) {
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text(stringResource(R.string.file_chmod_menu)) }, onClick = { menu = false; onChmod() })
+        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.file_open)) },
+                onClick = {
+                    menuExpanded = false
+                    onClick()
+                }
+            )
+            if (!entry.isDirectory && isLocal) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.file_edit)) },
+                    onClick = {
+                        menuExpanded = false
+                        onEdit()
+                    }
+                )
             }
+            if (supportsChmod) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.file_chmod_menu)) },
+                    onClick = {
+                        menuExpanded = false
+                        onChmod()
+                    }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.file_rename)) },
+                onClick = {
+                    menuExpanded = false
+                    onRename()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.file_delete), color = MaterialTheme.colorScheme.error) },
+                onClick = {
+                    menuExpanded = false
+                    onDelete()
+                }
+            )
         }
     }
 }
