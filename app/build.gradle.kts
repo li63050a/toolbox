@@ -17,22 +17,10 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.0.0.1"
-        // 只保留Android ARM架构，移除Windows/Mac/AIX native库
-        ndk {
-            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
-        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                android.getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-        debug {
             isMinifyEnabled = false
         }
     }
