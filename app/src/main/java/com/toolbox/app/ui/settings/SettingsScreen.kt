@@ -48,6 +48,7 @@ import com.toolbox.app.ui.theme.AccentPreset
 import com.toolbox.app.ui.theme.BgPreset
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -72,10 +73,17 @@ fun SettingsScreen(
 ) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(repo) }
     val settings by vm.settings.collectAsState(initial = UiSettings())
+    val activity = LocalContext.current as? android.app.Activity
     val dark = when (settings.themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
+    }
+
+    fun applyLanguage(language: AppLanguage) {
+        repo.applyLanguageSync(language) // 先同步落盘，recreate 后 attachBaseContext 立即生效
+        vm.setLanguage(language)
+        activity?.recreate()
     }
 
     Scaffold(
@@ -139,7 +147,7 @@ fun SettingsScreen(
                         RadioOption(stringResource(R.string.lang_en), AppLanguage.EN),
                     ),
                     selected = settings.language,
-                    onSelect = vm::setLanguage,
+                    onSelect = ::applyLanguage,
                 )
             }
 
