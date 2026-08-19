@@ -366,7 +366,7 @@ class TerminalView @JvmOverloads constructor(
             if (line.size != columns) {
                 val nl = CharArray(columns) { ' ' }
                 System.arraycopy(line, 0, nl, 0, minOf(line.size, columns))
-                line[nl.size - 1] = ' '
+                nl[nl.size - 1] = ' '
                 // 原地替换
                 lines[lines.indexOf(line)] = nl
             }
