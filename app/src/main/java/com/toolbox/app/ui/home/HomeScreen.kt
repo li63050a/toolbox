@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,6 +59,8 @@ private val features = listOf(
     Feature(Routes.OSS, R.string.home_oss_title, R.string.home_oss_desc, Icons.Filled.Cloud),
     Feature(Routes.VPN, R.string.home_vpn_title, R.string.home_vpn_desc, Icons.Filled.Dns),
     Feature(Routes.LOG, R.string.home_log_title, R.string.home_log_desc, Icons.Filled.Article),
+    Feature(Routes.DECIBEL, R.string.home_decibel_title, R.string.home_decibel_desc, Icons.Filled.GraphicEq),
+    Feature(Routes.DOWNLOAD, R.string.home_dl_title, R.string.home_dl_desc, Icons.Filled.Download),
     Feature(Routes.SETTINGS, R.string.settings, R.string.settings_desc, Icons.Filled.Settings),
 )
 
