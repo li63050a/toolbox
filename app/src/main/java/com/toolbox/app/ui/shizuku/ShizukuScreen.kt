@@ -69,7 +69,7 @@ fun ShizukuScreen(onBack: () -> Unit) {
 
     fun checkStatus() {
         try {
-            isRunning = Shizuku.ping()
+            isRunning = Shizuku.pingBinder()
             hasPermission = if (isRunning) Shizuku.checkSelfPermission() == 0 else false
             serverUid = if (isRunning) "uid=${Shizuku.getUid()}" else ""
         } catch (e: Exception) {
@@ -98,16 +98,19 @@ fun ShizukuScreen(onBack: () -> Unit) {
         output = ""
         Thread {
             try {
-                val proc = Shizuku.newProcess(arrayOf("sh", "-c", cmd), null, null)
-                val reader = BufferedReader(InputStreamReader(proc.inputStream))
-                val errReader = BufferedReader(InputStreamReader(proc.errorStream))
+                val binder = Shizuku.getBinder() ?: throw IllegalStateException("Binder not available")
+                val service = rikka.shizuku.ShizukuSystemProperties.requireService()
+                val process = service.newProcess(arrayOf("sh", "-c", cmd), null, null)
+                val reader = BufferedReader(InputStreamReader(process.getInputStream()))
+                val errReader = BufferedReader(InputStreamReader(process.errorStream))
                 val sb = StringBuilder()
                 var line: String?
                 while (reader.readLine().also { line = it } != null) sb.append(line).append("\n")
                 while (errReader.readLine().also { line = it } != null) sb.append("ERR: ").append(line).append("\n")
-                proc.waitFor()
+                process.waitFor()
                 output = sb.toString().trim()
                 if (output.isEmpty()) output = "(无输出)"
+                process.destroy()
             } catch (e: Exception) {
                 Log.e(TAG, "命令执行失败", e)
                 output = "Error: ${e.message}"
@@ -241,7 +244,7 @@ fun ShizukuScreen(onBack: () -> Unit) {
                         showDialog = false
                         try {
                             if (isRunning) {
-                                Shizuku.unbind(Shizuku.OnBinderSentListener {}, false)
+                                Shizuku.unbindUserService()
                                 Log.i(TAG, "Shizuku 已断开")
                             } else {
                                 val intent = Intent("rikka.shizuku.intent.action.START_NEW_INSTANCE")
