@@ -27,8 +27,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.toolbox.app.R
 import com.toolbox.app.log.Log
 import com.toolbox.app.vpn.mitm.CertManager
 import kotlinx.coroutines.CoroutineScope
@@ -55,7 +57,7 @@ fun CaPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState)
         loading = true
         cert = withContext(Dispatchers.IO) {
             runCatching { CertManager.caCertificate(context)?.let { certInfoOf(it) } }
-                .onFailure { Log.e(TAG, "读取 CA 证书失败", it) }
+                .onFailure { Log.e(TAG, "Failed to read CA certificate", it) }
                 .getOrNull()
         }
         loading = false
@@ -65,18 +67,18 @@ fun CaPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState)
         scope.launch {
             val uri = withContext(Dispatchers.IO) {
                 runCatching { CertManager.exportCa(context) }
-                    .onFailure { Log.e(TAG, "导出 CA 证书失败", it) }
+                    .onFailure { Log.e(TAG, "Failed to export CA certificate", it) }
                     .getOrNull()
             }
             if (uri == null) {
-                Log.e(TAG, "导出 CA 证书失败：返回空 Uri")
-                snack(scope, snackbar, "导出失败：未生成证书或写入失败")
+                Log.e(TAG, "Failed to export CA certificate: null Uri returned")
+                snack(scope, snackbar, context.getString(R.string.ca_export_failed))
             } else {
                 runCatching { shareCa(context, uri) }
-                    .onSuccess { Log.i(TAG, "已导出并分享 CA 证书: $uri") }
+                    .onSuccess { Log.i(TAG, "Exported and shared CA certificate: $uri") }
                     .onFailure { e ->
-                        Log.e(TAG, "分享 CA 证书失败", e)
-                        snack(scope, snackbar, "分享失败：${e.message}")
+                        Log.e(TAG, "Failed to share CA certificate", e)
+                        snack(scope, snackbar, context.getString(R.string.ca_share_failed, e.message))
                     }
             }
         }
@@ -96,9 +98,9 @@ fun CaPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState)
                     Modifier.fillMaxWidth().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("未生成 CA 证书", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.ca_not_generated), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "完整 MITM 模式需要自签 CA 证书。证书生成后，本页可查看信息、导出文件并引导安装。",
+                        stringResource(R.string.ca_not_generated_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -112,14 +114,14 @@ fun CaPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState)
                             Modifier.fillMaxWidth().padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("CA 证书信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            InfoRow("颁发者", info.issuer)
-                            InfoRow("有效期至", dateText(info.notAfter))
-                            InfoRow("SHA-256 指纹", info.fingerprint)
+                            Text(stringResource(R.string.ca_info_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            InfoRow(stringResource(R.string.ca_issuer), info.issuer)
+                            InfoRow(stringResource(R.string.ca_not_after), dateText(info.notAfter))
+                            InfoRow(stringResource(R.string.ca_fingerprint), info.fingerprint)
                         }
                     }
                     Button(onClick = { export() }, modifier = Modifier.fillMaxWidth()) {
-                        Text("导出证书文件")
+                        Text(stringResource(R.string.ca_export_btn))
                     }
                 }
             }
@@ -130,15 +132,15 @@ fun CaPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState)
                 Modifier.fillMaxWidth().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("安装指引", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("1. 打开系统「设置」→「安全」→「加密与凭据」→「安装证书」", style = MaterialTheme.typography.bodySmall)
-                Text("2. 选择「CA 证书」", style = MaterialTheme.typography.bodySmall)
-                Text("3. 选择刚导出的文件，证书名称可随意填写", style = MaterialTheme.typography.bodySmall)
-                Text("4. 回到本页，「完整 MITM 模式」即可生效", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.ca_install_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.ca_install_step1), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.ca_install_step2), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.ca_install_step3), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.ca_install_step4), style = MaterialTheme.typography.bodySmall)
             }
         }
         Text(
-            "提示：证书的卸载/重置请到系统设置的「加密与凭据」中操作，本应用不提供。",
+            stringResource(R.string.ca_reset_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -184,5 +186,5 @@ private fun shareCa(context: Context, uri: Uri) {
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(intent, "分享 CA 证书"))
+    context.startActivity(Intent.createChooser(intent, context.getString(R.string.ca_share_chooser)))
 }

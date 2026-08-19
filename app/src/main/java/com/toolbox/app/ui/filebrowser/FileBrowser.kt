@@ -1,5 +1,6 @@
 package com.toolbox.app.ui.filebrowser
 
+import com.toolbox.app.R
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -17,7 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -53,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.toolbox.app.log.Log
@@ -126,7 +128,7 @@ fun FileBrowserScreen(
             loading = true
             withContext(Dispatchers.IO) { ops.list(currentPath) }
                 .onSuccess { entries = it }
-                .onFailure { toast("列表失败: ${it.message}") }
+                .onFailure { toast(context.getString(R.string.file_list_fail, it.message)) }
             loading = false
         }
     }
@@ -141,8 +143,8 @@ fun FileBrowserScreen(
                 transferring = true
                 progress = 0f
                 withContext(Dispatchers.IO) { ops.upload(currentPath, uri) { p -> progress = p } }
-                    .onSuccess { toast("上传完成") }
-                    .onFailure { toast("上传失败: ${it.message}") }
+                    .onSuccess { toast(context.getString(R.string.file_upload_done)) }
+                    .onFailure { toast(context.getString(R.string.file_upload_fail, it.message)) }
                 transferring = false
                 refresh()
             }
@@ -160,8 +162,8 @@ fun FileBrowserScreen(
                 transferring = true
                 progress = 0f
                 withContext(Dispatchers.IO) { ops.download(entry.path, uri) { p -> progress = p } }
-                    .onSuccess { toast("下载完成") }
-                    .onFailure { toast("下载失败: ${it.message}") }
+                    .onSuccess { toast(context.getString(R.string.file_download_done)) }
+                    .onFailure { toast(context.getString(R.string.file_download_fail, it.message)) }
                 transferring = false
             }
         }
@@ -183,15 +185,15 @@ fun FileBrowserScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.file_back)) }
                 },
                 actions = {
-                    IconButton(onClick = { refresh() }) { Icon(Icons.Filled.Refresh, "刷新") }
+                    IconButton(onClick = { refresh() }) { Icon(Icons.Filled.Refresh, stringResource(R.string.file_refresh)) }
                     IconButton(onClick = {
                         lastClickedPathCont = currentPath
                         uploadLauncher.launch(arrayOf("*/*"))
-                    }) { Icon(Icons.Filled.Upload, "上传") }
-                    IconButton(onClick = { showNewDir = true }) { Icon(Icons.Filled.CreateNewFolder, "新建目录") }
+                    }) { Icon(Icons.Filled.Upload, stringResource(R.string.file_upload)) }
+                    IconButton(onClick = { showNewDir = true }) { Icon(Icons.Filled.CreateNewFolder, stringResource(R.string.file_new_dir)) }
                 }
             )
         }
@@ -200,7 +202,7 @@ fun FileBrowserScreen(
             when {
                 loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 entries.isEmpty() -> Text(
-                    "空目录",
+                    stringResource(R.string.file_empty),
                     Modifier.align(Alignment.Center),
                     style = MaterialTheme.typography.bodyLarge
                 )
@@ -209,7 +211,7 @@ fun FileBrowserScreen(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 4.dp)
                 ) {
-                    items(entries, key = { it.path }) { entry ->
+                    itemsIndexed(entries, key = { i, e -> e.path.ifBlank { "item_$i" } }) { _, entry ->
                         FileRow(
                             entry = entry,
                             onClick = {
@@ -239,7 +241,7 @@ fun FileBrowserScreen(
                 ) {
                     LinearProgressIndicator(progress = { progress }, Modifier.fillMaxWidth())
                     Text(
-                        "传输中 ${(progress * 100).toInt()}%",
+                        stringResource(R.string.file_transferring, (progress * 100).toInt()),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(top = 4.dp)
                     )
@@ -250,15 +252,15 @@ fun FileBrowserScreen(
 
     if (showNewDir) {
         SimpleInputDialog(
-            title = "新建目录",
+            title = stringResource(R.string.file_new_dir),
             value = newDirName,
             onValueChange = { newDirName = it },
             confirm = {
                 scope.launch {
                     showNewDir = false
                     withContext(Dispatchers.IO) { ops.mkdir("${currentPath.trimEnd('/')}/${newDirName.trim()}") }
-                        .onSuccess { toast("已创建"); refresh() }
-                        .onFailure { toast("创建失败: ${it.message}") }
+                        .onSuccess { toast(context.getString(R.string.file_created)); refresh() }
+                        .onFailure { toast(context.getString(R.string.file_create_fail, it.message)) }
                     newDirName = ""
                 }
             },
@@ -268,7 +270,7 @@ fun FileBrowserScreen(
 
     showRename?.let { entry ->
         SimpleInputDialog(
-            title = "重命名",
+            title = stringResource(R.string.file_rename),
             value = renameTo.ifEmpty { entry.name },
             onValueChange = { renameTo = it },
             confirm = {
@@ -276,8 +278,8 @@ fun FileBrowserScreen(
                     showRename = null
                     withContext(Dispatchers.IO) {
                         ops.rename(entry.path, renameTo.trim())
-                    }.onSuccess { toast("已重命名"); refresh() }
-                        .onFailure { toast("重命名失败: ${it.message}") }
+                    }.onSuccess { toast(context.getString(R.string.file_renamed)); refresh() }
+                        .onFailure { toast(context.getString(R.string.file_rename_fail, it.message)) }
                     renameTo = ""
                 }
             },
@@ -288,34 +290,34 @@ fun FileBrowserScreen(
     showDelete?.let { entry ->
         AlertDialog(
             onDismissRequest = { showDelete = null },
-            title = { Text("删除") },
-            text = { Text("确定删除 ${entry.name}？") },
+            title = { Text(stringResource(R.string.file_delete)) },
+            text = { Text(stringResource(R.string.file_delete_confirm, entry.name)) },
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
                         showDelete = null
                         withContext(Dispatchers.IO) { ops.delete(entry.path) }
-                            .onSuccess { toast("已删除"); refresh() }
-                            .onFailure { toast("删除失败: ${it.message}") }
+                            .onSuccess { toast(context.getString(R.string.file_deleted)); refresh() }
+                            .onFailure { toast(context.getString(R.string.file_delete_fail, it.message)) }
                     }
-                }) { Text("删除") }
+                }) { Text(stringResource(R.string.file_delete)) }
             },
-            dismissButton = { TextButton(onClick = { showDelete = null }) { Text("取消") } }
+            dismissButton = { TextButton(onClick = { showDelete = null }) { Text(stringResource(R.string.file_cancel)) } }
         )
     }
 
     showChmod?.let { entry ->
         AlertDialog(
             onDismissRequest = { showChmod = null; chmodText = "" },
-            title = { Text("修改权限") },
+            title = { Text(stringResource(R.string.file_chmod)) },
             text = {
                 Column {
-                    Text("${entry.name}\n输入 3 位八进制权限（如 644、755）")
+                    Text(stringResource(R.string.file_chmod_hint, entry.name))
                     OutlinedTextField(
                         value = chmodText,
                         onValueChange = { chmodText = it.filter { c -> c in '0'..'7' }.take(3) },
                         singleLine = true,
-                        label = { Text("权限") },
+                        label = { Text(stringResource(R.string.file_permission)) },
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                     )
                 }
@@ -328,14 +330,14 @@ fun FileBrowserScreen(
                             showChmod = null
                             val mode = chmodText.toInt(8)
                             withContext(Dispatchers.IO) { ops.chmod(entry.path, mode) }
-                                .onSuccess { toast("权限已修改"); refresh() }
-                                .onFailure { toast("修改失败: ${it.message}") }
+                                .onSuccess { toast(context.getString(R.string.file_chmod_done)); refresh() }
+                                .onFailure { toast(context.getString(R.string.file_chmod_fail, it.message)) }
                             chmodText = ""
                         }
                     }
-                ) { Text("确定") }
+                ) { Text(stringResource(R.string.file_ok)) }
             },
-            dismissButton = { TextButton(onClick = { showChmod = null; chmodText = "" }) { Text("取消") } }
+            dismissButton = { TextButton(onClick = { showChmod = null; chmodText = "" }) { Text(stringResource(R.string.file_cancel)) } }
         )
     }
 }
@@ -352,8 +354,8 @@ private fun SimpleInputDialog(
         onDismissRequest = dismiss,
         title = { Text(title) },
         text = { OutlinedTextField(value = value, onValueChange = onValueChange, singleLine = true) },
-        confirmButton = { TextButton(onClick = confirm) { Text("确定") } },
-        dismissButton = { TextButton(onClick = dismiss) { Text("取消") } }
+        confirmButton = { TextButton(onClick = confirm) { Text(stringResource(R.string.file_ok)) } },
+        dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.file_cancel)) } }
     )
 }
 
@@ -388,7 +390,7 @@ private fun FileRow(
                 Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     if (entry.isDirectory) {
-                        "目录 · ${sizeText(entry.size)}"
+                        stringResource(R.string.file_dir_with_size, sizeText(entry.size))
                     } else {
                         "${sizeText(entry.size)} · ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(entry.modified * 1000))}"
                     },
@@ -397,15 +399,15 @@ private fun FileRow(
                 )
             }
             IconButton(onClick = onRename, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Filled.Edit, "重命名", Modifier.size(18.dp))
+                Icon(Icons.Filled.Edit, stringResource(R.string.file_rename), Modifier.size(18.dp))
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Filled.Delete, "删除", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                Icon(Icons.Filled.Delete, stringResource(R.string.file_delete), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
             }
         }
         if (chmodEnabled) {
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text("修改权限 (chmod)") }, onClick = { menu = false; onChmod() })
+                DropdownMenuItem(text = { Text(stringResource(R.string.file_chmod_menu)) }, onClick = { menu = false; onChmod() })
             }
         }
     }

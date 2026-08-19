@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -33,9 +33,11 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.toolbox.app.R
 import com.toolbox.app.RepositoryProvider
 import com.toolbox.app.data.ConnectionConfig
 import com.toolbox.app.data.SshAuth
@@ -104,12 +106,12 @@ private fun SshListPage(
                     context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
                 }
                 if (text == null) {
-                    snackbar.showSnackbar("读取文件失败")
+                    snackbar.showSnackbar(context.getString(R.string.ssh_import_fail))
                     return@launch
                 }
                 runCatching { withContext(Dispatchers.IO) { repo.importJson(text) } }
-                    .onSuccess { snackbar.showSnackbar("已导入 $it 条连接") }
-                    .onFailure { snackbar.showSnackbar("导入失败: ${it.message}") }
+                    .onSuccess { snackbar.showSnackbar(context.getString(R.string.ssh_imported, it)) }
+                    .onFailure { snackbar.showSnackbar(context.getString(R.string.ssh_import_error, it.message)) }
             }
         }
     }
@@ -124,7 +126,7 @@ private fun SshListPage(
                         context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) } != null
                     }.getOrDefault(false)
                 }
-                snackbar.showSnackbar(if (ok) "已导出 ${all.size} 条连接" else "导出失败")
+                snackbar.showSnackbar(if (ok) context.getString(R.string.ssh_exported, all.size) else context.getString(R.string.ssh_export_fail))
             }
         }
     }
@@ -133,19 +135,19 @@ private fun SshListPage(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text("SSH 终端") },
+                title = { Text(stringResource(R.string.ssh_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.ssh_back)) }
                 },
                 actions = {
                     Box {
-                        IconButton(onClick = { showIoMenu = true }) { Icon(Icons.Filled.MoreVert, "导入导出") }
+                        IconButton(onClick = { showIoMenu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.ssh_import_export)) }
                         DropdownMenu(expanded = showIoMenu, onDismissRequest = { showIoMenu = false }) {
-                            DropdownMenuItem(text = { Text("导入连接（JSON）") }, onClick = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ssh_import_json)) }, onClick = {
                                 showIoMenu = false
                                 importLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
                             })
-                            DropdownMenuItem(text = { Text("导出连接（JSON）") }, onClick = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ssh_export_json)) }, onClick = {
                                 showIoMenu = false
                                 exportLauncher.launch("connections.json")
                             })
@@ -155,7 +157,7 @@ private fun SshListPage(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onNew) { Icon(Icons.Filled.Add, "新建") }
+            FloatingActionButton(onClick = onNew) { Icon(Icons.Filled.Add, stringResource(R.string.ssh_new)) }
         }
     ) { padding ->
         if (sshList.isEmpty()) {
@@ -164,11 +166,11 @@ private fun SshListPage(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text("暂无 SSH 连接，点击右下角新建")
+                Text(stringResource(R.string.ssh_empty))
             }
         } else {
             LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-                items(sshList, key = { it.id }) { conn ->
+                itemsIndexed(sshList, key = { i, c -> c.id.ifBlank { "conn_$i" } }) { _, conn ->
                     var menu by remember { mutableStateOf(false) }
                     Card(
                         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
@@ -187,24 +189,24 @@ private fun SshListPage(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "更多") }
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.ssh_more)) }
                         }
                     }
                     if (menu) {
                         DropdownMenu(expanded = true, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("打开终端") }, onClick = { menu = false; onTerm(conn) })
-                            DropdownMenuItem(text = { Text("文件浏览") }, onClick = { menu = false; onFiles(conn) })
-                            DropdownMenuItem(text = { Text("编辑") }, onClick = { menu = false; onEdit(conn) })
-                            DropdownMenuItem(text = { Text("测试连接") }, onClick = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ssh_open_term)) }, onClick = { menu = false; onTerm(conn) })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ssh_file_browser)) }, onClick = { menu = false; onFiles(conn) })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ssh_edit)) }, onClick = { menu = false; onEdit(conn) })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ssh_test_conn)) }, onClick = {
                                 menu = false
                                 scope.launch {
                                     val msg = withContext(Dispatchers.IO) { SshEngine(conn).test() }
-                                        .getOrElse { "测试失败: ${it.message}" }
+                                        .getOrElse { context.getString(R.string.ssh_test_fail, it.message) }
                                     snackbar.showSnackbar(msg)
                                 }
                             })
                             DropdownMenuItem(
-                                text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                                text = { Text(stringResource(R.string.ssh_delete), color = MaterialTheme.colorScheme.error) },
                                 onClick = {
                                     menu = false
                                     scope.launch { repo.delete(conn.id) }
@@ -223,6 +225,7 @@ private fun SshListPage(
 private fun SshFormPage(initial: ConnectionConfig.Ssh?, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var host by remember { mutableStateOf(initial?.host ?: "") }
     var port by remember { mutableStateOf(initial?.port?.toString() ?: "22") }
@@ -247,7 +250,7 @@ private fun SshFormPage(initial: ConnectionConfig.Ssh?, onBack: () -> Unit) {
         scope.launch {
             if (initial == null) RepositoryProvider.connections.add(cfg)
             else RepositoryProvider.connections.update(cfg)
-            snackbar.showSnackbar("已保存")
+            snackbar.showSnackbar(context.getString(R.string.ssh_saved))
             onBack()
         }
     }
@@ -256,9 +259,11 @@ private fun SshFormPage(initial: ConnectionConfig.Ssh?, onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(if (initial == null) "新建 SSH 连接" else "编辑 SSH 连接") },
+                title = {
+                    Text(if (initial == null) stringResource(R.string.ssh_new_conn) else stringResource(R.string.ssh_edit_conn))
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.ssh_back)) }
                 }
             )
         }
@@ -267,12 +272,12 @@ private fun SshFormPage(initial: ConnectionConfig.Ssh?, onBack: () -> Unit) {
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("名称（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = host, onValueChange = { host = it }, label = { Text("主机地址") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = port, onValueChange = { port = it }, label = { Text("端口") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = user, onValueChange = { user = it }, label = { Text("用户名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(stringResource(R.string.ssh_name_opt)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = host, onValueChange = { host = it }, label = { Text(stringResource(R.string.ssh_host)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = port, onValueChange = { port = it }, label = { Text(stringResource(R.string.ssh_port)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = user, onValueChange = { user = it }, label = { Text(stringResource(R.string.ssh_user)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
-            Text("认证方式", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.ssh_auth_method), style = MaterialTheme.typography.titleSmall)
             Row {
                 SshAuth.entries.forEach { a ->
                     Row(
@@ -280,24 +285,24 @@ private fun SshFormPage(initial: ConnectionConfig.Ssh?, onBack: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(selected = auth == a, onClick = { auth = a })
-                        Text(if (a == SshAuth.PASSWORD) "密码" else "私钥")
+                        Text(if (a == SshAuth.PASSWORD) stringResource(R.string.ssh_password) else stringResource(R.string.ssh_private_key))
                     }
                 }
             }
             if (auth == SshAuth.PASSWORD) {
                 OutlinedTextField(
                     value = password, onValueChange = { password = it },
-                    label = { Text("密码") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    label = { Text(stringResource(R.string.ssh_password)) }, singleLine = true, modifier = Modifier.fillMaxWidth()
                 )
             } else {
                 OutlinedTextField(
                     value = privateKey, onValueChange = { privateKey = it },
-                    label = { Text("私钥内容（-----BEGIN ...-----）") },
+                    label = { Text(stringResource(R.string.ssh_key_content)) },
                     minLines = 6, modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = passphrase, onValueChange = { passphrase = it },
-                    label = { Text("私钥口令（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    label = { Text(stringResource(R.string.ssh_passphrase)) }, singleLine = true, modifier = Modifier.fillMaxWidth()
                 )
             }
 
@@ -311,11 +316,11 @@ private fun SshFormPage(initial: ConnectionConfig.Ssh?, onBack: () -> Unit) {
                     )
                     scope.launch {
                         val msg = withContext(Dispatchers.IO) { SshEngine(cfg).test() }
-                            .getOrElse { "测试失败: ${it.message}" }
+                            .getOrElse { context.getString(R.string.ssh_test_fail, it.message) }
                         snackbar.showSnackbar(msg)
                     }
-                }) { Text("测试连接") }
-                Button(onClick = { save() }, modifier = Modifier.weight(1f)) { Text("保存") }
+                }) { Text(stringResource(R.string.ssh_test_conn)) }
+                Button(onClick = { save() }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.ssh_save)) }
             }
         }
     }
@@ -326,7 +331,8 @@ private fun SshFormPage(initial: ConnectionConfig.Ssh?, onBack: () -> Unit) {
 fun SshTerminalScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var status by remember { mutableStateOf("连接中…") }
+    val connectingText = stringResource(R.string.ssh_connecting)
+    var status by remember { mutableStateOf(connectingText) }
     val engine = remember { SshEngine(config) }
     val sessionHolder = remember { mutableStateOf<com.jcraft.jsch.Session?>(null) }
     val channelHolder = remember { mutableStateOf<com.jcraft.jsch.ChannelShell?>(null) }
@@ -347,11 +353,11 @@ fun SshTerminalScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
 
     fun connect() {
         scope.launch {
-            status = "连接中…"
+            status = context.getString(R.string.ssh_connecting)
             disconnect()
             val session = withContext(Dispatchers.IO) { engine.connect() }
                 .getOrElse {
-                    status = "连接失败: ${it.message}"
+                    status = context.getString(R.string.ssh_conn_fail, it.message)
                     Log.e("SSH", "连接失败", it)
                     return@launch
                 }
@@ -359,12 +365,12 @@ fun SshTerminalScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
             val channel = withContext(Dispatchers.IO) {
                 SshEngine.openShell(session).getOrElse { null }
             } ?: run {
-                status = "打开终端失败"
+                status = context.getString(R.string.ssh_open_term_fail)
                 disconnect()
                 return@launch
             }
             channelHolder.value = channel
-            status = "已连接 ${config.user}@${config.host}"
+            status = context.getString(R.string.ssh_connected, config.user, config.host)
             reading.set(true)
             withContext(Dispatchers.IO) {
                 val input = channel.inputStream
@@ -375,7 +381,7 @@ fun SshTerminalScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
                     terminalHolder.value?.write(buf.copyOf(n))
                 }
                 if (reading.get()) {
-                    status = "连接已断开"
+                    status = context.getString(R.string.ssh_disconnected)
                 }
             }
         }
@@ -396,7 +402,7 @@ fun SshTerminalScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = { disconnect(); onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "断开") }
+                    IconButton(onClick = { disconnect(); onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.ssh_disconnect)) }
                 }
             )
         }
@@ -415,14 +421,14 @@ fun SshTerminalScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
                 modifier = Modifier.weight(1f).fillMaxWidth()
             )
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                funKey("Esc", "\u001B")
-                funKey("Tab", "\t")
-                funKey("↑", "\u001B[A", channelHolder)
-                funKey("↓", "\u001B[B", channelHolder)
-                funKey("←", "\u001B[D", channelHolder)
-                funKey("→", "\u001B[C", channelHolder)
-                funKey("~", "~", channelHolder)
-                funKey("Ctrl", "\u0000", channelHolder)
+                funKey(stringResource(R.string.ssh_key_esc), "\u001B")
+                funKey(stringResource(R.string.ssh_key_tab), "\t")
+                funKey(stringResource(R.string.ssh_key_up), "\u001B[A", channelHolder)
+                funKey(stringResource(R.string.ssh_key_down), "\u001B[B", channelHolder)
+                funKey(stringResource(R.string.ssh_key_left), "\u001B[D", channelHolder)
+                funKey(stringResource(R.string.ssh_key_right), "\u001B[C", channelHolder)
+                funKey(stringResource(R.string.ssh_key_tilde), "~", channelHolder)
+                funKey(stringResource(R.string.ssh_key_ctrl), "\u0000", channelHolder)
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
@@ -437,20 +443,20 @@ fun SshTerminalScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
                             true
                         } else false
                     },
-                    placeholder = { Text("输入命令，回车发送") }
+                    placeholder = { Text(stringResource(R.string.ssh_input_hint)) }
                 )
                 IconButton(onClick = {
                     runCatching { channelHolder.value?.outputStream?.write(inputText.toByteArray()) }
                     inputText = ""
-                }) { Text("发送", style = MaterialTheme.typography.labelMedium) }
+                }) { Text(stringResource(R.string.ssh_send), style = MaterialTheme.typography.labelMedium) }
                 IconButton(onClick = {
                     fontSize = (fontSize - 1f).coerceAtLeast(8f)
                     terminalHolder.value?.setFontSize(fontSize)
-                }) { Text("A-", style = MaterialTheme.typography.labelMedium) }
+                }) { Text(stringResource(R.string.ssh_font_smaller), style = MaterialTheme.typography.labelMedium) }
                 IconButton(onClick = {
                     fontSize = (fontSize + 1f).coerceAtMost(26f)
                     terminalHolder.value?.setFontSize(fontSize)
-                }) { Text("A+", style = MaterialTheme.typography.labelMedium) }
+                }) { Text(stringResource(R.string.ssh_font_bigger), style = MaterialTheme.typography.labelMedium) }
             }
         }
     }
@@ -501,8 +507,8 @@ private fun SshFilesScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
     when {
         error != null -> Scaffold(
             topBar = {
-                TopAppBar(title = { Text("SFTP 文件") }, navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                TopAppBar(title = { Text(stringResource(R.string.ssh_sftp_title)) }, navigationIcon = {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.ssh_back)) }
                 })
             }
         ) { padding ->
@@ -511,14 +517,14 @@ private fun SshFilesScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("连接失败: $error")
-                Button(onClick = { error = null; connect() }) { Text("重试") }
+                Text(stringResource(R.string.ssh_conn_fail, error ?: ""))
+                Button(onClick = { error = null; connect() }) { Text(stringResource(R.string.ssh_retry)) }
             }
         }
-        !ready -> Scaffold(topBar = { TopAppBar(title = { Text("SFTP 文件") }) }) { padding ->
+        !ready -> Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.ssh_sftp_title)) }) }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 CircularProgressIndicator()
-                Text("连接中…", Modifier.padding(top = 12.dp))
+                Text(stringResource(R.string.ssh_connecting), Modifier.padding(top = 12.dp))
             }
         }
         else -> {

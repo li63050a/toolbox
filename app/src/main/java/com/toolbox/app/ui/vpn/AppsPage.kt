@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
@@ -26,8 +26,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.toolbox.app.R
 import com.toolbox.app.log.Log
 import com.toolbox.app.vpn.VpnConfigStore
 import kotlinx.coroutines.CoroutineScope
@@ -48,7 +50,7 @@ fun AppsPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostStat
         loading = true
         apps = withContext(Dispatchers.IO) {
             runCatching { loadLauncherApps(context) }
-                .onFailure { Log.e(TAG, "读取已安装应用列表失败", it) }
+                .onFailure { Log.e(TAG, "Failed to read installed apps list", it) }
                 .getOrDefault(emptyList())
         }
         loading = false
@@ -56,7 +58,7 @@ fun AppsPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostStat
 
     fun toggle(app: AppInfo) {
         val adding = app.pkg !in config.blockedApps
-        mutateConfig(scope, snackbar, if (adding) "排除应用 ${app.label}" else "恢复应用 ${app.label} 走 VPN") { c ->
+        mutateConfig(context, scope, snackbar, if (adding) context.getString(R.string.applist_exclude, app.label) else context.getString(R.string.applist_restore, app.label)) { c ->
             val set = c.blockedApps.toMutableSet()
             if (adding) set.add(app.pkg) else set.remove(app.pkg)
             c.copy(blockedApps = set)
@@ -65,7 +67,7 @@ fun AppsPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostStat
 
     Column(Modifier.fillMaxSize()) {
         Text(
-            "被排除的应用不走 VPN、不经过 MITM",
+            stringResource(R.string.applist_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -76,14 +78,14 @@ fun AppsPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostStat
             }
 
             apps.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("未读取到应用列表", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.applist_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             else -> LazyColumn(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                items(apps, key = { it.pkg }) { app ->
+                itemsIndexed(apps, key = { i, a -> a.pkg.ifBlank { "app_$i" } }) { _, app ->
                     Row(
                         Modifier.fillMaxWidth()
                             .clickable { toggle(app) }

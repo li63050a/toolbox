@@ -26,9 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.toolbox.app.R
 import com.toolbox.app.vpn.FragMode
 import com.toolbox.app.vpn.VpnConfigStore
 import kotlinx.coroutines.CoroutineScope
@@ -58,67 +60,67 @@ fun SniPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState
                     Switch(
                         checked = config.frag.enabled,
                         onCheckedChange = { v ->
-                            mutateConfig(scope, snackbar, if (v) "开启 SNI 分片" else "关闭 SNI 分片") {
+                            mutateConfig(context, scope, snackbar, if (v) context.getString(R.string.sni_frag_enable) else context.getString(R.string.sni_frag_disable)) {
                                 it.copy(frag = it.frag.copy(enabled = v))
                             }
                         }
                     )
                     Column {
-                        Text("SNI 分片", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.sni_frag_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "将 TLS 握手包拆片发送，规避按特征干扰",
+                            stringResource(R.string.sni_frag_desc),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
                 if (config.frag.enabled) {
-                    Text("分片模式", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.sni_frag_mode), style = MaterialTheme.typography.bodyMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = config.frag.mode == FragMode.SPLIT,
                             onClick = {
-                                mutateConfig(scope, snackbar, "SNI 分片模式设为仅分片") {
+                                mutateConfig(context, scope, snackbar, context.getString(R.string.sni_mode_split_msg)) {
                                     it.copy(frag = it.frag.copy(mode = FragMode.SPLIT))
                                 }
                             },
-                            label = { Text("仅分片") }
+                            label = { Text(stringResource(R.string.sni_mode_split)) }
                         )
                         FilterChip(
                             selected = config.frag.mode == FragMode.DELAY,
                             onClick = {
-                                mutateConfig(scope, snackbar, "SNI 分片模式设为分片+延时") {
+                                mutateConfig(context, scope, snackbar, context.getString(R.string.sni_mode_delay_msg)) {
                                     it.copy(frag = it.frag.copy(mode = FragMode.DELAY))
                                 }
                             },
-                            label = { Text("分片+延时") }
+                            label = { Text(stringResource(R.string.sni_mode_delay)) }
                         )
                     }
                     NumberField(
-                        label = "首片字节数",
+                        label = stringResource(R.string.sni_first_fragment_label),
                         value = config.frag.firstFragment,
                         range = 1..32
                     ) { v ->
-                        mutateConfig(scope, snackbar, "SNI 首片字节数设为 $v") {
+                        mutateConfig(context, scope, snackbar, context.getString(R.string.sni_first_fragment_msg, v)) {
                             it.copy(frag = it.frag.copy(firstFragment = v))
                         }
                     }
                     NumberField(
-                        label = "分片大小",
+                        label = stringResource(R.string.sni_chunk_label),
                         value = config.frag.chunk,
                         range = 8..256
                     ) { v ->
-                        mutateConfig(scope, snackbar, "SNI 分片大小设为 $v") {
+                        mutateConfig(context, scope, snackbar, context.getString(R.string.sni_chunk_msg, v)) {
                             it.copy(frag = it.frag.copy(chunk = v))
                         }
                     }
                     NumberField(
-                        label = "片间延时(ms)",
+                        label = stringResource(R.string.sni_delay_label),
                         value = config.frag.delayMs,
                         range = 0..100,
                         enabled = config.frag.mode == FragMode.DELAY
                     ) { v ->
-                        mutateConfig(scope, snackbar, "SNI 片间延时设为 ${v}ms") {
+                        mutateConfig(context, scope, snackbar, context.getString(R.string.sni_delay_msg, v)) {
                             it.copy(frag = it.frag.copy(delayMs = v))
                         }
                     }
@@ -138,15 +140,15 @@ fun SniPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState
                     Switch(
                         checked = config.spoof.enabled,
                         onCheckedChange = { v ->
-                            mutateConfig(scope, snackbar, if (v) "开启 SNI 伪装" else "关闭 SNI 伪装") {
+                            mutateConfig(context, scope, snackbar, if (v) context.getString(R.string.sni_spoof_enable) else context.getString(R.string.sni_spoof_disable)) {
                                 it.copy(spoof = it.spoof.copy(enabled = v))
                             }
                         }
                     )
                     Column {
-                        Text("SNI 伪装", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.sni_spoof_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "改写 TLS 握手 SNI，规避按域名阻断",
+                            stringResource(R.string.sni_spoof_desc),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -158,16 +160,16 @@ fun SniPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState
                         onValueChange = { new ->
                             fakeSni = new
                             if (new.isNotBlank() && new != config.spoof.fakeSni) {
-                                mutateConfig(scope, snackbar, "伪装域名改为 $new") { c ->
+                                mutateConfig(context, scope, snackbar, context.getString(R.string.sni_fake_sni_msg, new)) { c ->
                                     c.copy(spoof = c.spoof.copy(fakeSni = new))
                                 }
                             }
                         },
-                        label = { Text("伪装域名") },
-                        placeholder = { Text("默认 www.apple.com") },
+                        label = { Text(stringResource(R.string.sni_label_fake_sni)) },
+                        placeholder = { Text(stringResource(R.string.sni_placeholder_fake_sni)) },
                         singleLine = true,
                         supportingText = {
-                            Text("仅对不校验证书的服务器生效，严格站点自动升级 MITM")
+                            Text(stringResource(R.string.sni_spoof_support))
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -184,15 +186,15 @@ fun SniPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState
                 Switch(
                     checked = config.spoof.mitmFallback,
                     onCheckedChange = { v ->
-                        mutateConfig(scope, snackbar, if (v) "开启自动 MITM 升级" else "关闭自动 MITM 升级") {
+                        mutateConfig(context, scope, snackbar, if (v) context.getString(R.string.sni_mitm_enable) else context.getString(R.string.sni_mitm_disable)) {
                             it.copy(spoof = it.spoof.copy(mitmFallback = v))
                         }
                     }
                 )
                 Column {
-                    Text("自动 MITM 升级", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.sni_mitm_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "严格校验证书的站点自动升级为 MITM 本地终结，避免被阻断",
+                        stringResource(R.string.sni_mitm_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -212,15 +214,15 @@ fun SniPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState
                     Switch(
                         checked = config.mitmEnabled,
                         onCheckedChange = { v ->
-                            mutateConfig(scope, snackbar, if (v) "开启完整 MITM 模式" else "关闭完整 MITM 模式") {
+                            mutateConfig(context, scope, snackbar, if (v) context.getString(R.string.sni_full_mitm_enable) else context.getString(R.string.sni_full_mitm_disable)) {
                                 it.copy(mitmEnabled = v)
                             }
                         }
                     )
                     Column {
-                        Text("完整 MITM 模式", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.sni_full_mitm_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "所有 443 流量经本地终结，出站伪装 SNI；需要安装 CA 证书（见证书管理页）",
+                            stringResource(R.string.sni_full_mitm_desc),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -228,7 +230,7 @@ fun SniPage(context: Context, scope: CoroutineScope, snackbar: SnackbarHostState
                 }
                 if (config.mitmEnabled && !hasCa) {
                     Text(
-                        "提示：未检测到已安装的 CA 证书，请先到「CA 证书」页导出并安装，MITM 才能正常解密",
+                        stringResource(R.string.sni_no_ca_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )

@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,7 +24,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.toolbox.app.R
 import com.toolbox.app.RepositoryProvider
 import com.toolbox.app.data.ConnectionConfig
 import com.toolbox.app.data.typeName
@@ -92,12 +94,12 @@ private fun OssListPage(
                     context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
                 }
                 if (text == null) {
-                    snackbar.showSnackbar("读取文件失败")
+                    snackbar.showSnackbar(context.getString(R.string.oss_read_file_failed))
                     return@launch
                 }
                 runCatching { withContext(Dispatchers.IO) { repo.importJson(text) } }
-                    .onSuccess { snackbar.showSnackbar("已导入 $it 条连接") }
-                    .onFailure { snackbar.showSnackbar("导入失败: ${it.message}") }
+                    .onSuccess { snackbar.showSnackbar(context.getString(R.string.oss_imported_count, it)) }
+                    .onFailure { snackbar.showSnackbar(context.getString(R.string.oss_import_failed, it.message)) }
             }
         }
     }
@@ -112,7 +114,7 @@ private fun OssListPage(
                         context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) } != null
                     }.getOrDefault(false)
                 }
-                snackbar.showSnackbar(if (ok) "已导出 ${all.size} 条连接" else "导出失败")
+                snackbar.showSnackbar(if (ok) context.getString(R.string.oss_exported_count, all.size) else context.getString(R.string.oss_export_failed))
             }
         }
     }
@@ -130,19 +132,19 @@ private fun OssListPage(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text("对象存储") },
+                title = { Text(stringResource(R.string.oss_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.oss_back)) }
                 },
                 actions = {
                     Box {
-                        IconButton(onClick = { showIoMenu = true }) { Icon(Icons.Filled.MoreVert, "导入导出") }
+                        IconButton(onClick = { showIoMenu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.oss_import_export)) }
                         DropdownMenu(expanded = showIoMenu, onDismissRequest = { showIoMenu = false }) {
-                            DropdownMenuItem(text = { Text("导入连接（JSON）") }, onClick = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.oss_import_json)) }, onClick = {
                                 showIoMenu = false
                                 importLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
                             })
-                            DropdownMenuItem(text = { Text("导出连接（JSON）") }, onClick = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.oss_export_json)) }, onClick = {
                                 showIoMenu = false
                                 exportLauncher.launch("connections.json")
                             })
@@ -152,23 +154,23 @@ private fun OssListPage(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { onNew(filter ?: OssType.S3) }) { Icon(Icons.Filled.Add, "新建") }
+            FloatingActionButton(onClick = { onNew(filter ?: OssType.S3) }) { Icon(Icons.Filled.Add, stringResource(R.string.oss_new)) }
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = filter == null, onClick = { filter = null }, label = { Text("全部") })
-                FilterChip(selected = filter == OssType.S3, onClick = { filter = OssType.S3 }, label = { Text("S3 兼容") })
-                FilterChip(selected = filter == OssType.OSS, onClick = { filter = OssType.OSS }, label = { Text("阿里云 OSS") })
-                FilterChip(selected = filter == OssType.COS, onClick = { filter = OssType.COS }, label = { Text("腾讯云 COS") })
+                FilterChip(selected = filter == null, onClick = { filter = null }, label = { Text(stringResource(R.string.oss_all)) })
+                FilterChip(selected = filter == OssType.S3, onClick = { filter = OssType.S3 }, label = { Text(stringResource(R.string.oss_s3_compatible)) })
+                FilterChip(selected = filter == OssType.OSS, onClick = { filter = OssType.OSS }, label = { Text(stringResource(R.string.oss_aliyun_oss)) })
+                FilterChip(selected = filter == OssType.COS, onClick = { filter = OssType.COS }, label = { Text(stringResource(R.string.oss_tencent_cos)) })
             }
             if (filtered.isEmpty()) {
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                    Text("暂无连接，点击右下角新建")
+                    Text(stringResource(R.string.oss_empty_hint))
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    items(filtered, key = { it.id }) { conn ->
+                    itemsIndexed(filtered, key = { i, c -> c.id.ifBlank { "conn_$i" } }) { _, conn ->
                         var menu by remember { mutableStateOf(false) }
                         Card(
                             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
@@ -184,14 +186,14 @@ private fun OssListPage(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "更多") }
+                                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.oss_more)) }
                             }
                         }
                         if (menu) {
                             DropdownMenu(expanded = true, onDismissRequest = { menu = false }) {
-                                DropdownMenuItem(text = { Text("打开") }, onClick = { menu = false; onOpen(conn) })
-                                DropdownMenuItem(text = { Text("编辑") }, onClick = { menu = false; onEdit(conn) })
-                                DropdownMenuItem(text = { Text("删除") }, onClick = {
+                                DropdownMenuItem(text = { Text(stringResource(R.string.oss_open)) }, onClick = { menu = false; onOpen(conn) })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.oss_edit)) }, onClick = { menu = false; onEdit(conn) })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.oss_delete)) }, onClick = {
                                     menu = false
                                     scope.launch { repo.delete(conn.id) }
                                 })
@@ -214,6 +216,7 @@ private fun summary(c: ConnectionConfig): String = when (c) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OssFormPage(initial: ConnectionConfig?, onBack: () -> Unit) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
@@ -246,7 +249,7 @@ private fun OssFormPage(initial: ConnectionConfig?, onBack: () -> Unit) {
         scope.launch {
             if (initial == null) RepositoryProvider.connections.add(cfg)
             else RepositoryProvider.connections.update(cfg)
-            snackbar.showSnackbar("已保存")
+            snackbar.showSnackbar(context.getString(R.string.oss_saved))
             onBack()
         }
     }
@@ -255,9 +258,9 @@ private fun OssFormPage(initial: ConnectionConfig?, onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(if (initial == null) "新建连接" else "编辑连接") },
+                title = { Text(if (initial == null) stringResource(R.string.oss_form_title_new) else stringResource(R.string.oss_form_title_edit)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.oss_back)) }
                 }
             )
         }
@@ -268,38 +271,38 @@ private fun OssFormPage(initial: ConnectionConfig?, onBack: () -> Unit) {
         ) {
             Text(
                 when (initial) {
-                    is ConnectionConfig.Oss -> "阿里云 OSS 配置"
-                    is ConnectionConfig.Cos -> "腾讯云 COS 配置"
-                    else -> "S3 兼容配置"
+                    is ConnectionConfig.Oss -> stringResource(R.string.oss_aliyun_oss_config)
+                    is ConnectionConfig.Cos -> stringResource(R.string.oss_tencent_cos_config)
+                    else -> stringResource(R.string.oss_s3_compatible_config)
                 },
                 style = MaterialTheme.typography.titleMedium
             )
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("名称（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(stringResource(R.string.oss_name_optional)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             when (initial) {
                 is ConnectionConfig.Oss -> {
-                    OutlinedTextField(value = ossEndpoint, onValueChange = { ossEndpoint = it }, label = { Text("Endpoint（如 oss-cn-hangzhou.aliyuncs.com）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = ossEndpoint, onValueChange = { ossEndpoint = it }, label = { Text(stringResource(R.string.oss_oss_endpoint_hint)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 }
                 is ConnectionConfig.Cos -> {
-                    OutlinedTextField(value = cosRegion, onValueChange = { cosRegion = it }, label = { Text("地域（如 ap-guangzhou）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = cosRegion, onValueChange = { cosRegion = it }, label = { Text(stringResource(R.string.oss_cos_region_hint)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 }
                 else -> {
-                    OutlinedTextField(value = s3Endpoint, onValueChange = { s3Endpoint = it }, label = { Text("Endpoint（如 s3.example.com:9000）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = s3Region, onValueChange = { s3Region = it }, label = { Text("Region（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = s3Endpoint, onValueChange = { s3Endpoint = it }, label = { Text(stringResource(R.string.oss_s3_endpoint_hint)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = s3Region, onValueChange = { s3Region = it }, label = { Text(stringResource(R.string.oss_s3_region)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Row(Modifier.clickable { pathStyle = !pathStyle }, verticalAlignment = Alignment.CenterVertically) {
                         Switch(checked = pathStyle, onCheckedChange = { pathStyle = it })
-                        Text("Path-Style 寻址", Modifier.padding(start = 8.dp))
+                        Text(stringResource(R.string.oss_path_style), Modifier.padding(start = 8.dp))
                     }
                     Row(Modifier.clickable { https = !https }, verticalAlignment = Alignment.CenterVertically) {
                         Switch(checked = https, onCheckedChange = { https = it })
-                        Text("使用 HTTPS", Modifier.padding(start = 8.dp))
+                        Text(stringResource(R.string.oss_use_https), Modifier.padding(start = 8.dp))
                     }
                 }
             }
             OutlinedTextField(value = ak, onValueChange = { ak = it }, label = { Text(if (initial is ConnectionConfig.Cos) "SecretId" else "AccessKeyId") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = sk, onValueChange = { sk = it }, label = { Text(if (initial is ConnectionConfig.Cos) "SecretKey" else "AccessKeySecret") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = bucket, onValueChange = { bucket = it }, label = { Text("默认桶（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = bucket, onValueChange = { bucket = it }, label = { Text(stringResource(R.string.oss_default_bucket)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
-            Button(onClick = { save() }, modifier = Modifier.fillMaxWidth()) { Text("保存") }
+            Button(onClick = { save() }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.oss_save)) }
         }
     }
 }
@@ -320,13 +323,13 @@ private fun OssFilesScreen(config: ConnectionConfig, onBack: () -> Unit) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("对象存储") },
+                    title = { Text(stringResource(R.string.oss_title)) },
                     navigationIcon = {
-                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.oss_back)) }
                     }
                 )
             }
-        ) { padding -> Text("不支持的连接类型", Modifier.padding(padding)) }
+        ) { padding -> Text(stringResource(R.string.oss_unsupported_type), Modifier.padding(padding)) }
         return
     }
     val fileOps: FileOps = ops

@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,7 +24,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.toolbox.app.R
 import com.toolbox.app.RepositoryProvider
 import com.toolbox.app.data.ConnectionConfig
 import com.toolbox.app.data.FtpSecurity
@@ -82,12 +84,12 @@ private fun FtpListPage(
                     context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
                 }
                 if (text == null) {
-                    snackbar.showSnackbar("读取文件失败")
+                    snackbar.showSnackbar(context.getString(R.string.ftp_read_file_failed))
                     return@launch
                 }
                 runCatching { withContext(Dispatchers.IO) { repo.importJson(text) } }
-                    .onSuccess { snackbar.showSnackbar("已导入 $it 条连接") }
-                    .onFailure { snackbar.showSnackbar("导入失败: ${it.message}") }
+                    .onSuccess { snackbar.showSnackbar(context.getString(R.string.ftp_imported_count, it)) }
+                    .onFailure { snackbar.showSnackbar(context.getString(R.string.ftp_import_failed, it.message)) }
             }
         }
     }
@@ -102,7 +104,7 @@ private fun FtpListPage(
                         context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) } != null
                     }.getOrDefault(false)
                 }
-                snackbar.showSnackbar(if (ok) "已导出 ${ftpList.size} 条连接" else "导出失败")
+                snackbar.showSnackbar(if (ok) context.getString(R.string.ftp_exported_count, ftpList.size) else context.getString(R.string.ftp_export_failed))
             }
         }
     }
@@ -113,17 +115,17 @@ private fun FtpListPage(
             TopAppBar(
                 title = { Text("FTP/FTPS") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.ftp_back)) }
                 },
                 actions = {
                     Box {
-                        IconButton(onClick = { showIoMenu = true }) { Icon(Icons.Filled.MoreVert, "导入导出") }
+                        IconButton(onClick = { showIoMenu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.ftp_import_export)) }
                         DropdownMenu(expanded = showIoMenu, onDismissRequest = { showIoMenu = false }) {
-                            DropdownMenuItem(text = { Text("导入连接（JSON）") }, onClick = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ftp_import_json)) }, onClick = {
                                 showIoMenu = false
                                 importLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
                             })
-                            DropdownMenuItem(text = { Text("导出连接（JSON）") }, onClick = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ftp_export_json)) }, onClick = {
                                 showIoMenu = false
                                 exportLauncher.launch("connections.json")
                             })
@@ -133,7 +135,7 @@ private fun FtpListPage(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onNew) { Icon(Icons.Filled.Add, "新建") }
+            FloatingActionButton(onClick = onNew) { Icon(Icons.Filled.Add, stringResource(R.string.ftp_new)) }
         }
     ) { padding ->
         if (ftpList.isEmpty()) {
@@ -141,10 +143,10 @@ private fun FtpListPage(
                 Modifier.fillMaxSize().padding(padding),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
-            ) { Text("暂无 FTP 连接，点击右下角新建") }
+            ) { Text(stringResource(R.string.ftp_empty_hint)) }
         } else {
             LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-                items(ftpList, key = { it.id }) { conn ->
+                itemsIndexed(ftpList, key = { i, c -> c.id.ifBlank { "conn_$i" } }) { _, conn ->
                     var menu by remember { mutableStateOf(false) }
                     Card(
                         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
@@ -160,23 +162,23 @@ private fun FtpListPage(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "更多") }
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.ftp_more)) }
                         }
                     }
                     if (menu) {
                         DropdownMenu(expanded = true, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("打开") }, onClick = { menu = false; onOpen(conn) })
-                            DropdownMenuItem(text = { Text("编辑") }, onClick = { menu = false; onEdit(conn) })
-                            DropdownMenuItem(text = { Text("测试连接") }, onClick = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ftp_open)) }, onClick = { menu = false; onOpen(conn) })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ftp_edit)) }, onClick = { menu = false; onEdit(conn) })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ftp_test_connection)) }, onClick = {
                                 menu = false
                                 scope.launch {
                                     val msg = withContext(Dispatchers.IO) { FtpClient(conn).test() }
-                                        .getOrElse { "测试失败: ${it.message}" }
+                                        .getOrElse { context.getString(R.string.ftp_test_failed, it.message) }
                                     snackbar.showSnackbar(msg)
                                 }
                             })
                             DropdownMenuItem(
-                                text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                                text = { Text(stringResource(R.string.ftp_delete), color = MaterialTheme.colorScheme.error) },
                                 onClick = { menu = false; scope.launch { repo.delete(conn.id) } }
                             )
                         }
@@ -187,15 +189,17 @@ private fun FtpListPage(
     }
 }
 
+@Composable
 private fun securityText(s: FtpSecurity): String = when (s) {
     FtpSecurity.FTP -> "FTP"
-    FtpSecurity.FTPS_EXPLICIT -> "FTPS 显式"
-    FtpSecurity.FTPS_IMPLICIT -> "FTPS 隐式"
+    FtpSecurity.FTPS_EXPLICIT -> stringResource(R.string.ftp_security_ftps_explicit)
+    FtpSecurity.FTPS_IMPLICIT -> stringResource(R.string.ftp_security_ftps_implicit)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FtpFormPage(initial: ConnectionConfig.Ftp?, onBack: () -> Unit) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var name by remember { mutableStateOf(initial?.name ?: "") }
@@ -220,7 +224,7 @@ private fun FtpFormPage(initial: ConnectionConfig.Ftp?, onBack: () -> Unit) {
         scope.launch {
             if (initial == null) RepositoryProvider.connections.add(cfg)
             else RepositoryProvider.connections.update(cfg)
-            snackbar.showSnackbar("已保存")
+            snackbar.showSnackbar(context.getString(R.string.ftp_saved))
             onBack()
         }
     }
@@ -229,9 +233,9 @@ private fun FtpFormPage(initial: ConnectionConfig.Ftp?, onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(if (initial == null) "新建 FTP 连接" else "编辑 FTP 连接") },
+                title = { Text(if (initial == null) stringResource(R.string.ftp_form_title_new) else stringResource(R.string.ftp_form_title_edit)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.ftp_back)) }
                 }
             )
         }
@@ -240,13 +244,13 @@ private fun FtpFormPage(initial: ConnectionConfig.Ftp?, onBack: () -> Unit) {
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("名称（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = host, onValueChange = { host = it }, label = { Text("主机地址") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = port, onValueChange = { port = it }, label = { Text("端口") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = user, onValueChange = { user = it }, label = { Text("用户名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("密码") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(stringResource(R.string.ftp_name_optional)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = host, onValueChange = { host = it }, label = { Text(stringResource(R.string.ftp_host)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = port, onValueChange = { port = it }, label = { Text(stringResource(R.string.ftp_port)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = user, onValueChange = { user = it }, label = { Text(stringResource(R.string.ftp_username)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text(stringResource(R.string.ftp_password)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
-            Text("安全模式", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.ftp_security_mode), style = MaterialTheme.typography.titleSmall)
             Column {
                 FtpSecurity.entries.forEach { s ->
                     Row(Modifier.clickable { security = s }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -257,7 +261,7 @@ private fun FtpFormPage(initial: ConnectionConfig.Ftp?, onBack: () -> Unit) {
             }
             Row(Modifier.clickable { passive = !passive }, verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = passive, onCheckedChange = { passive = it })
-                Text("被动模式（PAVS）", Modifier.padding(start = 8.dp))
+                Text(stringResource(R.string.ftp_passive_mode), Modifier.padding(start = 8.dp))
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -269,11 +273,11 @@ private fun FtpFormPage(initial: ConnectionConfig.Ftp?, onBack: () -> Unit) {
                     )
                     scope.launch {
                         val msg = withContext(Dispatchers.IO) { FtpClient(cfg).test() }
-                            .getOrElse { "测试失败: ${it.message}" }
+                            .getOrElse { context.getString(R.string.ftp_test_failed, it.message) }
                         snackbar.showSnackbar(msg)
                     }
-                }) { Text("测试连接") }
-                Button(onClick = { save() }, modifier = Modifier.weight(1f)) { Text("保存") }
+                }) { Text(stringResource(R.string.ftp_test_connection)) }
+                Button(onClick = { save() }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.ftp_save)) }
             }
         }
     }
@@ -320,7 +324,7 @@ private fun FtpFilesScreen(config: ConnectionConfig.Ftp, onBack: () -> Unit) {
             TopAppBar(
                 title = { Text(config.name.ifEmpty { config.host }) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.ftp_back)) }
                 }
             )
         }
@@ -332,15 +336,15 @@ private fun FtpFilesScreen(config: ConnectionConfig.Ftp, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.Center
             ) {
                 CircularProgressIndicator()
-                Text("连接中…", Modifier.padding(top = 12.dp))
+                Text(stringResource(R.string.ftp_connecting), Modifier.padding(top = 12.dp))
             }
             error != null -> Column(
                 Modifier.fillMaxSize().padding(padding).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("连接失败: $error")
-                Button(onClick = { error = null; connect() }) { Text("重试") }
+                Text(stringResource(R.string.ftp_connect_failed, error ?: ""))
+                Button(onClick = { error = null; connect() }) { Text(stringResource(R.string.ftp_retry)) }
             }
             else -> {
                 val client = clientHolder.value!!

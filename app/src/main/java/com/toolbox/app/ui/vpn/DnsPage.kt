@@ -30,9 +30,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.toolbox.app.R
 import com.toolbox.app.log.Log
 import com.toolbox.app.vpn.DnsType
 import com.toolbox.app.vpn.DnsUpstream
@@ -45,6 +48,7 @@ private const val TAG = "VpnUI"
 @Composable
 fun DnsPage(scope: CoroutineScope, snackbar: SnackbarHostState) {
     val config by VpnConfigStore.config.collectAsState()
+    val context = LocalContext.current
     var showAdd by remember { mutableStateOf(false) }
 
     Column(
@@ -53,7 +57,7 @@ fun DnsPage(scope: CoroutineScope, snackbar: SnackbarHostState) {
     ) {
         if (config.dnsServers.isEmpty()) {
             Text(
-                "暂无上游 DNS，添加一个以接管查询",
+                stringResource(R.string.dns_empty),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -65,7 +69,7 @@ fun DnsPage(scope: CoroutineScope, snackbar: SnackbarHostState) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        dnsTypeText(dns.type),
+                        dnsTypeText(dns.type, stringResource(R.string.dns_plain_udp)),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(end = 8.dp)
@@ -81,15 +85,15 @@ fun DnsPage(scope: CoroutineScope, snackbar: SnackbarHostState) {
                             runCatching {
                                 VpnConfigStore.mutate { it.copy(dnsServers = it.dnsServers.filter { x -> x != dns }) }
                             }.onSuccess {
-                                Log.i(TAG, "删除 DNS 上游 ${dns.host}:${dns.port}")
-                                snack(scope, snackbar, "已删除 ${dnsTypeText(dns.type)} ${dns.host}:${dns.port}")
+                                Log.i(TAG, "Deleted DNS upstream ${dns.host}:${dns.port}")
+                                snack(scope, snackbar, context.getString(R.string.dns_deleted, dnsTypeText(dns.type, context.getString(R.string.dns_plain_udp)), "${dns.host}:${dns.port}"))
                             }.onFailure {
-                                Log.e(TAG, "删除 DNS 上游失败", it)
-                                snack(scope, snackbar, "删除失败：${it.message}")
+                                Log.e(TAG, "Failed to delete DNS upstream", it)
+                                snack(scope, snackbar, context.getString(R.string.dns_delete_failed, it.message))
                             }
                         }
                     }) {
-                        Icon(Icons.Filled.Delete, "删除", tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.Filled.Delete, stringResource(R.string.dns_delete), tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -101,11 +105,11 @@ fun DnsPage(scope: CoroutineScope, snackbar: SnackbarHostState) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(Icons.Filled.Add, null, tint = MaterialTheme.colorScheme.primary)
-                Text("添加 DNS 服务器", fontWeight = FontWeight.Medium)
+                Text(stringResource(R.string.dns_add_server), fontWeight = FontWeight.Medium)
             }
         }
         Text(
-            "说明：普通 = UDP 直连；DoT = DNS over TLS（RFC 7858）；DoH = DNS over HTTPS（RFC 8484）",
+            stringResource(R.string.dns_help),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -122,6 +126,7 @@ private fun AddDnsDialog(
     snackbar: SnackbarHostState,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     var dnsType by remember { mutableStateOf(DnsType.PLAIN) }
     var host by remember { mutableStateOf("") }
     var portText by remember { mutableStateOf("53") }
@@ -139,12 +144,12 @@ private fun AddDnsDialog(
         val h = host.trim()
         val p = portText.trim().toIntOrNull()
         when {
-            h.isEmpty() -> error = "请输入服务器地址"
-            p == null || p !in 1..65535 -> error = "端口需为 1-65535 之间的数字"
+            h.isEmpty() -> error = context.getString(R.string.dns_err_addr)
+            p == null || p !in 1..65535 -> error = context.getString(R.string.dns_err_port)
             else -> {
                 error = null
                 onDismiss()
-                mutateConfig(scope, snackbar, "添加 DNS 上游 ${dnsTypeText(dnsType)} $h:$p") {
+                mutateConfig(context, scope, snackbar, context.getString(R.string.dns_added, dnsTypeText(dnsType, context.getString(R.string.dns_plain_udp)), "$h:$p")) {
                     it.copy(dnsServers = it.dnsServers + DnsUpstream(dnsType, h, p))
                 }
             }
@@ -153,14 +158,14 @@ private fun AddDnsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("添加 DNS 服务器") },
+        title = { Text(stringResource(R.string.dns_add_server)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = dnsType == DnsType.PLAIN,
                         onClick = { dnsType = DnsType.PLAIN },
-                        label = { Text("普通 UDP") }
+                        label = { Text(stringResource(R.string.dns_plain_udp)) }
                     )
                     FilterChip(
                         selected = dnsType == DnsType.DOT,
@@ -176,14 +181,14 @@ private fun AddDnsDialog(
                 OutlinedTextField(
                     value = host,
                     onValueChange = { host = it },
-                    label = { Text("服务器地址（IP 或域名）") },
+                    label = { Text(stringResource(R.string.dns_label_addr)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = portText,
                     onValueChange = { s -> portText = s.filter { c -> c.isDigit() } },
-                    label = { Text("端口") },
+                    label = { Text(stringResource(R.string.dns_label_port)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -196,13 +201,13 @@ private fun AddDnsDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { confirm() }) { Text("确定") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        confirmButton = { TextButton(onClick = { confirm() }) { Text(stringResource(R.string.dns_ok)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.dns_cancel)) } }
     )
 }
 
-private fun dnsTypeText(t: DnsType): String = when (t) {
-    DnsType.PLAIN -> "普通 UDP"
+private fun dnsTypeText(t: DnsType, plainUdp: String): String = when (t) {
+    DnsType.PLAIN -> plainUdp
     DnsType.DOT -> "DoT"
     DnsType.DOH -> "DoH"
 }

@@ -1,6 +1,7 @@
 package com.toolbox.app.ui.vpn
 
 import android.content.Context
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,9 +45,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.toolbox.app.R
 import com.toolbox.app.log.Log
 import com.toolbox.app.vpn.VpnConfig
 import com.toolbox.app.vpn.VpnConfigStore
@@ -60,13 +63,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-enum class VPAGE(val title: String) {
-    MAIN("VPN"),
-    DNS("DNS 服务器"),
-    HOSTS("hosts 规则"),
-    SNI("SNI 防阻断与伪装"),
-    APPS("排除应用"),
-    CA("CA 证书")
+enum class VPAGE(@StringRes val titleRes: Int) {
+    MAIN(R.string.vpn_main),
+    DNS(R.string.vpn_dns_server),
+    HOSTS(R.string.vpn_hosts_rules),
+    SNI(R.string.vpn_sni_title),
+    APPS(R.string.vpn_excluded_apps_title),
+    CA(R.string.vpn_ca_title)
 }
 
 private const val TAG = "VpnUI"
@@ -98,10 +101,10 @@ fun VpnScreen(onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(page.title) },
+                title = { Text(stringResource(page.titleRes)) },
                 navigationIcon = {
                     IconButton(onClick = { if (page == VPAGE.MAIN) onBack() else page = VPAGE.MAIN }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.vpn_back))
                     }
                 }
             )
@@ -140,21 +143,21 @@ private fun MainPage(
     fun startVpn() {
         try {
             VpnController.start(context)
-            Log.i(TAG, "请求启动 VPN")
-            snack(scope, snackbar, "启动中… 若弹出系统授权窗口请点击允许")
+            Log.i(TAG, "Requesting VPN start")
+            snack(scope, snackbar, context.getString(R.string.vpn_starting_message))
         } catch (e: SecurityException) {
-            Log.e(TAG, "启动 VPN 失败：未获系统授权", e)
-            snack(scope, snackbar, "未获 VPN 授权，请在系统弹窗中允许后重新启动")
+            Log.e(TAG, "Failed to start VPN: no system permission", e)
+            snack(scope, snackbar, context.getString(R.string.vpn_start_no_permission))
         } catch (e: Exception) {
-            Log.e(TAG, "启动 VPN 失败", e)
-            snack(scope, snackbar, "启动失败：${e.message}")
+            Log.e(TAG, "Failed to start VPN", e)
+            snack(scope, snackbar, context.getString(R.string.vpn_start_failed, e.message))
         }
     }
 
     fun stopVpn() {
         runCatching { VpnController.stop(context) }
-        Log.i(TAG, "请求停止 VPN")
-        snack(scope, snackbar, "已停止 VPN")
+        Log.i(TAG, "Requesting VPN stop")
+        snack(scope, snackbar, context.getString(R.string.vpn_stopped))
     }
 
     Column(
@@ -178,19 +181,19 @@ private fun MainPage(
                     Column(Modifier.weight(1f)) {
                         Text(
                             when (status) {
-                                VpnStatus.ON -> "VPN 运行中"
-                                VpnStatus.STARTING -> "正在启动…"
-                                VpnStatus.ERROR -> "VPN 运行异常"
-                                else -> "VPN 已停止"
+                                VpnStatus.ON -> stringResource(R.string.vpn_status_running)
+                                VpnStatus.STARTING -> stringResource(R.string.vpn_starting)
+                                VpnStatus.ERROR -> stringResource(R.string.vpn_status_error)
+                                else -> stringResource(R.string.vpn_status_stopped)
                             },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             when (status) {
-                                VpnStatus.ON -> "已连接 ${formatDuration(elapsed)}"
-                                VpnStatus.STARTING -> "请稍候，正在建立隧道"
-                                else -> "点击开关或下方按钮启动"
+                                VpnStatus.ON -> stringResource(R.string.vpn_connected_duration, formatDuration(elapsed))
+                                VpnStatus.STARTING -> stringResource(R.string.vpn_tunnel_starting)
+                                else -> stringResource(R.string.vpn_start_hint)
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -199,7 +202,7 @@ private fun MainPage(
                 }
                 if (status == VpnStatus.ERROR) {
                     Text(
-                        lastError ?: "未知错误",
+                        lastError ?: stringResource(R.string.vpn_unknown_error),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )
@@ -213,48 +216,48 @@ private fun MainPage(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        "实时流量",
+                        stringResource(R.string.vpn_realtime_traffic),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f).padding(start = 8.dp)
                     )
                     Text(
-                        "上行 ${formatBytes(txBytes)} · 下行 ${formatBytes(rxBytes)}",
+                        stringResource(R.string.vpn_traffic_up_down, formatBytes(txBytes), formatBytes(rxBytes)),
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
                 when (status) {
-                    VpnStatus.OFF -> Button(onClick = { startVpn() }, Modifier.fillMaxWidth()) { Text("启动 VPN") }
-                    VpnStatus.STARTING -> Button(onClick = {}, Modifier.fillMaxWidth(), enabled = false) { Text("正在启动…") }
-                    VpnStatus.ON -> OutlinedButton(onClick = { stopVpn() }, Modifier.fillMaxWidth()) { Text("停止 VPN") }
-                    VpnStatus.ERROR -> Button(onClick = { startVpn() }, Modifier.fillMaxWidth()) { Text("重新启动") }
+                    VpnStatus.OFF -> Button(onClick = { startVpn() }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.vpn_button_start)) }
+                    VpnStatus.STARTING -> Button(onClick = {}, Modifier.fillMaxWidth(), enabled = false) { Text(stringResource(R.string.vpn_starting)) }
+                    VpnStatus.ON -> OutlinedButton(onClick = { stopVpn() }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.vpn_button_stop)) }
+                    VpnStatus.ERROR -> Button(onClick = { startVpn() }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.vpn_restart)) }
                 }
             }
         }
 
         EntryRow(
             Icons.Filled.Dns,
-            "DNS 服务器",
-            "已配置 ${config.dnsServers.size} 个上游"
+            stringResource(R.string.vpn_dns_server),
+            stringResource(R.string.vpn_dns_count, config.dnsServers.size)
         ) { onOpen(VPAGE.DNS) }
         EntryRow(
             Icons.Filled.FormatListBulleted,
-            "hosts 规则",
-            "启用 ${config.hostsRules.count { it.enabled }} / ${config.hostsRules.size} 条"
+            stringResource(R.string.vpn_hosts_rules),
+            stringResource(R.string.vpn_hosts_count, config.hostsRules.count { it.enabled }, config.hostsRules.size)
         ) { onOpen(VPAGE.HOSTS) }
         EntryRow(
             Icons.Filled.Lock,
-            "SNI 防阻断与伪装",
-            if (config.frag.enabled || config.spoof.enabled || config.mitmEnabled) "已开启" else "未开启"
+            stringResource(R.string.vpn_sni_title),
+            stringResource(if (config.frag.enabled || config.spoof.enabled || config.mitmEnabled) R.string.vpn_enabled else R.string.vpn_disabled)
         ) { onOpen(VPAGE.SNI) }
         EntryRow(
             Icons.Filled.AppBlocking,
-            "排除应用",
-            "${config.blockedApps.size} 个应用不走 VPN"
+            stringResource(R.string.vpn_excluded_apps_title),
+            stringResource(R.string.vpn_excluded_apps_count, config.blockedApps.size)
         ) { onOpen(VPAGE.APPS) }
         EntryRow(
             Icons.Filled.VerifiedUser,
-            "CA 证书",
-            if (hasCa) "已生成" else "未生成"
+            stringResource(R.string.vpn_ca_title),
+            stringResource(if (hasCa) R.string.vpn_generated else R.string.vpn_not_generated)
         ) { onOpen(VPAGE.CA) }
     }
 }
@@ -293,7 +296,7 @@ internal fun rememberHasCa(context: Context): Boolean {
     LaunchedEffect(Unit) {
         has = withContext(Dispatchers.IO) {
             runCatching { CertManager.caCertificate(context) != null }
-                .onFailure { Log.e(TAG, "读取 CA 证书失败", it) }
+                .onFailure { Log.e(TAG, "Failed to read CA certificate", it) }
                 .getOrDefault(false)
         }
     }
@@ -305,6 +308,7 @@ internal fun snack(scope: CoroutineScope, snackbar: SnackbarHostState, msg: Stri
 }
 
 internal fun mutateConfig(
+    context: Context,
     scope: CoroutineScope,
     snackbar: SnackbarHostState,
     action: String,
@@ -313,7 +317,7 @@ internal fun mutateConfig(
     scope.launch {
         runCatching { VpnConfigStore.mutate(block) }
             .onSuccess { Log.i(TAG, action); snack(scope, snackbar, action) }
-            .onFailure { Log.e(TAG, "$action 失败", it); snack(scope, snackbar, "$action 失败：${it.message}") }
+            .onFailure { Log.e(TAG, "$action failed", it); snack(scope, snackbar, context.getString(R.string.vpn_action_failed, action, it.message)) }
     }
 }
 

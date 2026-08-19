@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,24 +35,27 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.toolbox.app.R
 import com.toolbox.app.ui.Routes
 
 private data class Feature(
     val route: String,
-    val title: String,
-    val desc: String,
+    val titleRes: Int,
+    val descRes: Int,
     val icon: ImageVector
 )
 
 private val features = listOf(
-    Feature(Routes.SSH, "SSH 终端", "远程终端 + SFTP 文件管理", Icons.Filled.Terminal),
-    Feature(Routes.FTP, "FTP/FTPS", "FTP · FTPS 文件传输", Icons.Filled.Folder),
-    Feature(Routes.OSS, "对象存储", "S3 · OSS · COS", Icons.Filled.Cloud),
-    Feature(Routes.VPN, "VPN", "改 DNS · hosts · SNI 伪装", Icons.Filled.Dns),
-    Feature(Routes.LOG, "日志", "运行日志与错误排查", Icons.Filled.Article),
+    Feature(Routes.SSH, R.string.home_ssh_title, R.string.home_ssh_desc, Icons.Filled.Terminal),
+    Feature(Routes.FTP, R.string.home_ftp_title, R.string.home_ftp_desc, Icons.Filled.Folder),
+    Feature(Routes.OSS, R.string.home_oss_title, R.string.home_oss_desc, Icons.Filled.Cloud),
+    Feature(Routes.VPN, R.string.home_vpn_title, R.string.home_vpn_desc, Icons.Filled.Dns),
+    Feature(Routes.LOG, R.string.home_log_title, R.string.home_log_desc, Icons.Filled.Article),
+    Feature(Routes.SETTINGS, R.string.settings, R.string.settings_desc, Icons.Filled.Settings),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,7 +65,7 @@ fun HomeScreen(onOpen: (String) -> Unit) {
         topBar = {
             TopAppBar(title = {
                 Text(
-                    "工具箱",
+                    stringResource(R.string.app_name),
                     fontWeight = FontWeight.Bold
                 )
             })
@@ -105,9 +109,9 @@ private fun FeatureCard(feature: Feature, onClick: () -> Unit) {
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
-            Text(feature.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(feature.titleRes), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                feature.desc,
+                stringResource(feature.descRes),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
