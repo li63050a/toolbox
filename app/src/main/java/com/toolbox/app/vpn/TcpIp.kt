@@ -227,6 +227,7 @@ object TcpIp {
                 s.dstIp, s.srcIp, s.dstPort, s.srcPort,
                 s.serverSeq, s.clientSynSeq + 1, FLAG_SYN or FLAG_ACK, null, 0, 0
             )
+            s.serverSeq += 1
         }
     }
 

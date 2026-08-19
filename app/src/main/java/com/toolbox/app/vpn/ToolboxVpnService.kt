@@ -37,6 +37,7 @@ class ToolboxVpnService : VpnService() {
     }
 
     private var relayThread: Thread? = null
+    private var tunFd: ParcelFileDescriptor? = null
     private val mitmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var mitmJob: Job? = null
 
@@ -56,7 +57,7 @@ class ToolboxVpnService : VpnService() {
             syncMitmProxy()
             relayThread = thread(name = "vpn-relay") { relayLoop() }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     /** 跟随配置启停 MITM（含运行中热切换），配置为 StateFlow 避免异步加载竞态 */
@@ -78,6 +79,7 @@ class ToolboxVpnService : VpnService() {
                 VpnController.onError("VPN 授权失效")
                 return
             }
+            tunFd = fd
             val input = FileInputStream(fd.fileDescriptor)
             val output = FileOutputStream(fd.fileDescriptor)
             Log.i(TAG, "tun 已建立，进入中继主循环")
@@ -89,6 +91,7 @@ class ToolboxVpnService : VpnService() {
             postNotification("工具箱VPN", "VPN 已断开")
             stopForegroundCompat()
             stopSelf()
+            tunFd = null
         }
     }
 
@@ -99,6 +102,7 @@ class ToolboxVpnService : VpnService() {
             .setConfigureIntent(configureIntent())
             .addAddress("10.8.0.2", 32)
             .addAddress("fd00::2", 128)
+            .addDnsServer(java.net.InetAddress.getByName("10.8.0.2"))
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
             .setMtu(1500)
@@ -187,6 +191,8 @@ class ToolboxVpnService : VpnService() {
         DnsProxy.stop()
         SocketProtector.protectFn = null
         SocketProtector.datagramProtectFn = null
+        runCatching { tunFd?.close() }
+        relayThread?.join(1500)
         VpnController.onServiceStopped()
         stopForegroundCompat()
         super.onDestroy()
