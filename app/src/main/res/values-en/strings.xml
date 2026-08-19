@@ -422,4 +422,19 @@
     <string name="shizuku_cancel">Cancel</string>
     <string name="home_shizuku_title">Shizuku</string>
     <string name="home_shizuku_desc">Root permissions · wireless debugging</string>
+    <string name="shizuku_open_adb">ADB Manager</string>
+    <string name="shizuku_adb_title">ADB Manager</string>
+    <string name="shizuku_refresh">Refresh</string>
+    <string name="shizuku_connect_device">Add Device</string>
+    <string name="shizuku_devices">Devices</string>
+    <string name="shizuku_no_devices">No devices detected</string>
+    <string name="shizuku_selected">Selected</string>
+    <string name="shizuku_command_hint">Enter ADB command (e.g., ls, pm list packages, dumpsys battery)</string>
+    <string name="shizuku_run">Run</string>
+    <string name="shizuku_clear">Clear</string>
+    <string name="shizuku_output">Output</string>
+    <string name="shizuku_output_hint">Click Run to execute command</string>
+    <string name="shizuku_connect_title">Connect Device</string>
+    <string name="shizuku_connect_host">IP Address (e.g., 192.168.1.100)</string>
+    <string name="shizuku_connect_port">Port (default 5555)</string>
 </resources>

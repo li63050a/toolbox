@@ -422,4 +422,19 @@
     <string name="shizuku_cancel">取消</string>
     <string name="home_shizuku_title">Shizuku</string>
     <string name="home_shizuku_desc">Root权限 · 无线调试授权</string>
+    <string name="shizuku_open_adb">ADB 管理器</string>
+    <string name="shizuku_adb_title">ADB 管理器</string>
+    <string name="shizuku_refresh">刷新</string>
+    <string name="shizuku_connect_device">添加设备</string>
+    <string name="shizuku_devices">设备列表</string>
+    <string name="shizuku_no_devices">未检测到设备</string>
+    <string name="shizuku_selected">已选中</string>
+    <string name="shizuku_command_hint">输入 ADB 命令（如：ls、pm list packages、dumpsys battery）</string>
+    <string name="shizuku_run">执行</string>
+    <string name="shizuku_clear">清空</string>
+    <string name="shizuku_output">输出</string>
+    <string name="shizuku_output_hint">点击执行按钮运行命令</string>
+    <string name="shizuku_connect_title">连接设备</string>
+    <string name="shizuku_connect_host">IP 地址（如 192.168.1.100）</string>
+    <string name="shizuku_connect_port">端口（默认 5555）</string>
 </resources>
