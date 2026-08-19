@@ -107,7 +107,7 @@ fun ShizukuScreen(onBack: () -> Unit) {
                 )
                 newProcessMethod.isAccessible = true
                 @Suppress("UNCHECKED_CAST")
-                val process = newProcessMethod.invoke(null, arrayOf("sh", "-c", cmd), emptyArray<String>(), null) as java.io.Process
+                val process = newProcessMethod.invoke(null, arrayOf("sh", "-c", cmd), emptyArray<String>(), null) as java.lang.Process
                 val reader = BufferedReader(InputStreamReader(process.getInputStream()))
                 val errReader = BufferedReader(InputStreamReader(process.errorStream))
                 val sb = StringBuilder()
