@@ -102,7 +102,8 @@ class ToolboxVpnService : VpnService() {
             .setConfigureIntent(configureIntent())
             .addAddress("10.8.0.2", 32)
             .addAddress("fd00::2", 128)
-            .addDnsServer(java.net.InetAddress.getByName("10.8.0.2"))
+            // DNS 指向本地回环，由 DnsProxy 监听 127.0.0.1:5353 处理
+            .addDnsServer(java.net.InetAddress.getByName("127.0.0.1"))
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
             .setMtu(1500)
@@ -187,14 +188,13 @@ class ToolboxVpnService : VpnService() {
         Log.i(TAG, "VPN 服务销毁")
         mitmJob?.cancel()
         MitmProxy.stop()
-        TcpIp.shutdown()
+        TcpIp.closeTunOut()        // 关闭输出流 → unblock relayLoop 的 tunIn.read
         DnsProxy.stop()
         SocketProtector.protectFn = null
         SocketProtector.datagramProtectFn = null
-        runCatching { tunFd?.close() }
-        relayThread?.join(1500)
+        relayThread?.join(3000)    // 等待 relayLoop 的 finally 块执行完毕
         VpnController.onServiceStopped()
-        stopForegroundCompat()
+        stopForegroundCompat()     // 最后在 onDestroy 里兜底清理通知
         super.onDestroy()
     }
 }

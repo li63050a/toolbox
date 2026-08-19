@@ -99,6 +99,13 @@ object TcpIp {
         rxAccum.set(0)
     }
 
+    /** 主动关闭 tun 输出流，强制 relayLoop 退出（供 VpnService.onDestroy 调用） */
+    fun closeTunOut() {
+        synchronized(writeLock) {
+            runCatching { tunOut?.close() }
+        }
+    }
+
     // ---------------------------------------------------------------- 计数
 
     private fun counterLoop() {
