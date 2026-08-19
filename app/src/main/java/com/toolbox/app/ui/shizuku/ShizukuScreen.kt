@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
@@ -98,19 +97,47 @@ fun ShizukuScreen(onBack: () -> Unit) {
         output = ""
         Thread {
             try {
+                // 通过 Shizuku binder 执行命令
                 val binder = Shizuku.getBinder() ?: throw IllegalStateException("Binder not available")
-                val service = rikka.shizuku.ShizukuSystemProperties.requireService()
-                val process = service.newProcess(arrayOf("sh", "-c", cmd), null, null)
-                val reader = BufferedReader(InputStreamReader(process.getInputStream()))
-                val errReader = BufferedReader(InputStreamReader(process.errorStream))
-                val sb = StringBuilder()
-                var line: String?
-                while (reader.readLine().also { line = it } != null) sb.append(line).append("\n")
-                while (errReader.readLine().also { line = it } != null) sb.append("ERR: ").append(line).append("\n")
-                process.waitFor()
-                output = sb.toString().trim()
-                if (output.isEmpty()) output = "(无输出)"
-                process.destroy()
+                val parcel = android.os.Parcel.obtain()
+                val reply = android.os.Parcel.obtain()
+                try {
+                    parcel.writeInterfaceToken("moe.shizuku.server.IShizukuService")
+                    parcel.writeStringArray(arrayOf("sh", "-c", cmd))
+                    parcel.writeStringArray(null)
+                    parcel.writeString(null)
+                    binder.transact(3, parcel, reply, 0)
+                    reply.readException()
+                    val processBinder = reply.readStrongBinder()
+                    if (processBinder != null) {
+                        // 获取进程的输出流
+                        val processParcel = android.os.Parcel.obtain()
+                        val processReply = android.os.Parcel.obtain()
+                        try {
+                            processParcel.writeInterfaceToken("moe.shizuku.server.IRemoteProcess")
+                            processBinder.transact(1, processParcel, processReply, 0) // getInputStream
+                            processReply.readException()
+                            val isBinder = processReply.readStrongBinder()
+                            if (isBinder != null) {
+                                val inputStream = android.os.ParcelFileDescriptor.AutoCloseInputStream(isBinder)
+                                val reader = BufferedReader(InputStreamReader(inputStream))
+                                val sb = StringBuilder()
+                                var line: String?
+                                while (reader.readLine().also { line = it } != null) sb.append(line).append("\n")
+                                output = sb.toString().trim()
+                                if (output.isEmpty()) output = "(无输出)"
+                            }
+                        } finally {
+                            processParcel.recycle()
+                            processReply.recycle()
+                        }
+                    } else {
+                        output = "无法创建进程"
+                    }
+                } finally {
+                    parcel.recycle()
+                    reply.recycle()
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "命令执行失败", e)
                 output = "Error: ${e.message}"
@@ -141,10 +168,7 @@ fun ShizukuScreen(onBack: () -> Unit) {
                     containerColor = if (isRunning) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
                 )
             ) {
-                Column(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             if (isRunning) Icons.Filled.CheckCircle else Icons.Filled.Warning,
@@ -159,27 +183,17 @@ fun ShizukuScreen(onBack: () -> Unit) {
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    if (isRunning) {
-                        Text(
-                            "$serverUid · ${if (hasPermission) stringResource(R.string.shizuku_perm_granted) else stringResource(R.string.shizuku_perm_pending)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    } else {
-                        Text(
-                            stringResource(R.string.shizuku_status_no),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
+                    Text(
+                        if (isRunning) "${serverUid} · ${if (hasPermission) stringResource(R.string.shizuku_perm_granted) else stringResource(R.string.shizuku_perm_pending)}"
+                        else stringResource(R.string.shizuku_status_no),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isRunning) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                    )
                 }
             }
 
             Card(Modifier.fillMaxWidth()) {
-                Column(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Shield, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
@@ -244,8 +258,8 @@ fun ShizukuScreen(onBack: () -> Unit) {
                         showDialog = false
                         try {
                             if (isRunning) {
-                                Shizuku.unbindUserService()
-                                Log.i(TAG, "Shizuku 已断开")
+                                // Shizuku 会自动清理，不需要手动 unbind
+                                Log.i(TAG, "Shizuku 会话已结束")
                             } else {
                                 val intent = Intent("rikka.shizuku.intent.action.START_NEW_INSTANCE")
                                 intent.setPackage("moe.shizuku.privileged.api")
