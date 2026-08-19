@@ -339,4 +339,16 @@
     <string name="file_ok">OK</string>
     <string name="file_dir_with_size">Folder · %1$s</string>
     <string name="file_chmod_menu">Change permissions (chmod)</string>
+    <string name="home_files_title">Files</string>
+    <string name="home_files_desc">Local files · FTP / SFTP / Object Storage</string>
+    <string name="files_title">File Manager</string>
+    <string name="files_local">Local /</string>
+    <string name="files_sec_ssh">SSH / SFTP</string>
+    <string name="files_sec_ftp">FTP</string>
+    <string name="files_sec_oss">Object Storage</string>
+    <string name="files_permission_title">All files access required</string>
+    <string name="files_permission_desc">The file manager needs "All files access" (Android 11+) to browse the device root directory and all files. Grant it in system settings.</string>
+    <string name="files_grant">Grant</string>
+    <string name="files_retry">Re-check</string>
+    <string name="file_open_fail">Failed to open file: %1$s</string>
 </resources>

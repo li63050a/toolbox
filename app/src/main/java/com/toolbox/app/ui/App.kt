@@ -5,6 +5,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.toolbox.app.data.SettingsRepository
+import com.toolbox.app.ui.files.FilesScreen
 import com.toolbox.app.ui.ftp.FtpHomeScreen
 import com.toolbox.app.ui.home.HomeScreen
 import com.toolbox.app.ui.log.LogScreen
@@ -15,6 +16,7 @@ import com.toolbox.app.ui.vpn.VpnScreen
 
 object Routes {
     const val HOME = "home"
+    const val FILES = "files"
     const val SSH = "ssh"
     const val FTP = "ftp"
     const val OSS = "oss"
@@ -28,6 +30,7 @@ fun App(repo: SettingsRepository) {
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = Routes.HOME) {
         composable(Routes.HOME) { HomeScreen(onOpen = { navController.navigate(it) }) }
+        composable(Routes.FILES) { FilesScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SSH) { SshHomeScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.FTP) { FtpHomeScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.OSS) { OssHomeScreen(onBack = { navController.popBackStack() }) }

@@ -285,7 +285,7 @@ private fun FtpFormPage(initial: ConnectionConfig.Ftp?, onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FtpFilesScreen(config: ConnectionConfig.Ftp, onBack: () -> Unit) {
+fun FtpFilesScreen(config: ConnectionConfig.Ftp, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val clientHolder = remember { mutableStateOf<org.apache.commons.net.ftp.FTPClient?>(null) }

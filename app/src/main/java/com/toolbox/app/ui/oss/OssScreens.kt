@@ -309,7 +309,7 @@ private fun OssFormPage(initial: ConnectionConfig?, onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun OssFilesScreen(config: ConnectionConfig, onBack: () -> Unit) {
+fun OssFilesScreen(config: ConnectionConfig, onBack: () -> Unit) {
     val context = LocalContext.current
     val ops = remember(config.id) {
         when (config) {

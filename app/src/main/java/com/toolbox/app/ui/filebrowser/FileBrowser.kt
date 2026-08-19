@@ -61,9 +61,25 @@ import com.toolbox.app.log.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** 用系统应用打开本地文件（FileProvider） */
+private fun openLocalFile(context: Context, path: String): android.content.Intent? = runCatching {
+    val uri = androidx.core.content.FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        File(path)
+    )
+    android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+            path.substringAfterLast('.', "").lowercase()
+        ) ?: "*/*")
+        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+}.getOrNull()
 
 data class FileEntry(
     val path: String,
@@ -88,12 +104,14 @@ interface FileOps {
     suspend fun upload(remoteDir: String, localUri: Uri, progress: (Float) -> Unit): Result<Unit>
     /** 是否支持修改权限（仅 SFTP 支持） */
     val supportsChmod: Boolean get() = false
+    /** 是否为本地文件系统（隐藏上传/下载，点击文件直接打开） */
+    val isLocal: Boolean get() = false
     /** 修改权限，mode 为 3 位八进制值（如 0o755） */
     suspend fun chmod(path: String, mode: Int): Result<Unit> =
         Result.failure(UnsupportedOperationException("当前后端不支持修改权限"))
     fun rootPath(): String
     fun displayName(): String
-    fun close()
+    fun close() {}
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -189,10 +207,12 @@ fun FileBrowserScreen(
                 },
                 actions = {
                     IconButton(onClick = { refresh() }) { Icon(Icons.Filled.Refresh, stringResource(R.string.file_refresh)) }
-                    IconButton(onClick = {
-                        lastClickedPathCont = currentPath
-                        uploadLauncher.launch(arrayOf("*/*"))
-                    }) { Icon(Icons.Filled.Upload, stringResource(R.string.file_upload)) }
+                    if (!ops.isLocal) {
+                        IconButton(onClick = {
+                            lastClickedPathCont = currentPath
+                            uploadLauncher.launch(arrayOf("*/*"))
+                        }) { Icon(Icons.Filled.Upload, stringResource(R.string.file_upload)) }
+                    }
                     IconButton(onClick = { showNewDir = true }) { Icon(Icons.Filled.CreateNewFolder, stringResource(R.string.file_new_dir)) }
                 }
             )
@@ -218,6 +238,13 @@ fun FileBrowserScreen(
                                 if (entry.isDirectory) {
                                     currentPath = entry.path
                                     refresh()
+                                } else if (ops.isLocal) {
+                                    openLocalFile(context, entry.path)?.let { intent ->
+                                        runCatching { context.startActivity(intent) }
+                                            .onFailure {
+                                                toast(context.getString(R.string.file_open_fail, it.message))
+                                            }
+                                    } ?: toast(context.getString(R.string.file_open_fail, "FileProvider"))
                                 } else {
                                     lastClickedPathCont = entry.path
                                     downloadLauncher.launch(entry.name)

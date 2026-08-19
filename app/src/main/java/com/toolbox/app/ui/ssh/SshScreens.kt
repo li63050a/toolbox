@@ -480,7 +480,7 @@ private fun RowScope.funKey(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SshFilesScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
+fun SshFilesScreen(config: ConnectionConfig.Ssh, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var ready by remember { mutableStateOf(false) }
