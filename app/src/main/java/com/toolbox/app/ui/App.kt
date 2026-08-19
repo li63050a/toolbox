@@ -12,6 +12,7 @@ import com.toolbox.app.ui.ftp.FtpHomeScreen
 import com.toolbox.app.ui.home.HomeScreen
 import com.toolbox.app.ui.log.LogScreen
 import com.toolbox.app.ui.settings.SettingsScreen
+import com.toolbox.app.ui.shizuku.ShizukuScreen
 import com.toolbox.app.ui.ssh.SshHomeScreen
 import com.toolbox.app.ui.vpn.VpnScreen
 
@@ -22,6 +23,7 @@ object Routes {
     const val DOWNLOAD = "download"
     const val SSH = "ssh"
     const val VPN = "vpn"
+    const val SHIZUKU = "shizuku"
     const val LOG = "log"
     const val SETTINGS = "settings"
 }
@@ -36,6 +38,7 @@ fun App(repo: SettingsRepository) {
         composable(Routes.DOWNLOAD) { DownloaderScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SSH) { SshHomeScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.VPN) { VpnScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.SHIZUKU) { ShizukuScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.LOG) { LogScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SETTINGS) { SettingsScreen(repo = repo, onBack = { navController.popBackStack() }) }
     }

@@ -85,6 +85,8 @@ dependencies {
     implementation("com.github.mwiede:jsch:0.2.21")
     // FTP / FTPS
     implementation("commons-net:commons-net:3.11.1")
+    // Shizuku (privileged shell without root)
+    implementation("dev.rikka.shizuku:api:13.1.5")
     // Object storage
     implementation("io.minio:minio:8.5.12")
     implementation("com.aliyun.oss:aliyun-sdk-oss:3.17.4")
