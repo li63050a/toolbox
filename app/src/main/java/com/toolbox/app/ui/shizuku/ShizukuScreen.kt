@@ -60,16 +60,16 @@ fun ShizukuScreen(onBack: () -> Unit) {
         }
     }
 
-    fun checkRootAvailable(): Boolean {
-        return try {
-            val process = Runtime.getRuntime().exec("su")
-            process.waitFor(100, java.util.concurrent.TimeUnit.MILLISECONDS)
-            process.destroy()
-            true
-        } catch (e: Exception) {
-            false
-        }
+fun checkRootAvailable(): Boolean {
+    return try {
+        val process = Runtime.getRuntime().exec("su")
+        process.waitFor(100, java.util.concurrent.TimeUnit.MILLISECONDS)
+        process.destroy()
+        true
+    } catch (e: Exception) {
+        false
     }
+}
 
     LaunchedEffect(Unit) {
         checkStatus()
@@ -157,21 +157,18 @@ fun ShizukuScreen(onBack: () -> Unit) {
         }.start()
     }
 
-    fun startShizukuViaRoot() {
-        if (!isRunning) {
-            try {
-                val process = Runtime.getRuntime().exec("su")
-                val writer = PrintWriter(process.outputStream)
-                writer.println("sh /data/local/tmp/start.sh")
-                writer.println("exit")
-                writer.flush()
-                process.waitFor()
-                checkStatus()
-            } catch (e: Exception) {
-                Log.e(TAG, "Root 启动失败", e)
-            }
-        }
+fun startShizukuViaRoot(context: Context) {
+    try {
+        val process = Runtime.getRuntime().exec("su")
+        val writer = PrintWriter(process.outputStream)
+        writer.println("sh /data/local/tmp/start.sh")
+        writer.println("exit")
+        writer.flush()
+        process.waitFor()
+    } catch (e: Exception) {
+        Log.e(TAG, "Root 启动失败", e)
     }
+}
 
     fun toggleAutoStart(enabled: Boolean) {
         try {
