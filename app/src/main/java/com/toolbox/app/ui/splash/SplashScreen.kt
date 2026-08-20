@@ -29,7 +29,6 @@ fun SplashScreen(
     LaunchedEffect(Unit) {
         delay(settings.splashDuration.toLong())
         visible = false
-        delay(300)
         onFinished()
     }
 
@@ -41,24 +40,32 @@ fun SplashScreen(
                         .background(Color(android.graphics.Color.parseColor(settings.splashColor))),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Color.White)
+                    CircularProgressIndicator(color = Color.White.copy(alpha = 0.7f))
                 }
             }
             SplashType.IMAGE -> {
                 if (settings.splashImagePath != null) {
-                    AsyncImage(
-                        model = Uri.parse(settings.splashImagePath),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AsyncImage(
+                            model = Uri.parse(settings.splashImagePath),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        Box(
+                            Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = Color.White.copy(alpha = 0.7f))
+                        }
+                    }
                 } else {
                     Box(
                         modifier = Modifier.fillMaxSize()
                             .background(Color(0xFF1A73E8)),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = Color.White)
+                        CircularProgressIndicator(color = Color.White.copy(alpha = 0.7f))
                     }
                 }
             }
@@ -87,7 +94,7 @@ fun SplashScreen(
                             .background(Color(0xFF1A73E8)),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = Color.White)
+                        CircularProgressIndicator(color = Color.White.copy(alpha = 0.7f))
                     }
                 }
             }

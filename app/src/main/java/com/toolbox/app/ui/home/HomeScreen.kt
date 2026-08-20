@@ -1,13 +1,11 @@
 package com.toolbox.app.ui.home
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -41,69 +39,93 @@ private val features = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(onOpen: (String) -> Unit) {
-    var drawerOpen by remember { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    var selectedIndex by remember { mutableStateOf(0) }
 
     ModalNavigationDrawer(
-        drawerState = rememberDrawerState(initialValue = DrawerValue.Closed),
+        drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
                 // 顶部标题
                 Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
+                    Modifier.fillMaxWidth().padding(20.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Menu, null, modifier = Modifier.size(24.dp))
+                    Icon(
+                        Icons.Filled.Apps,
+                        contentDescription = null,
+                        modifier = Modifier.size(32.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Spacer(Modifier.width(12.dp))
-                    Text("工具箱", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        "工具箱",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
                 Divider()
 
-                // 功能分类 - 网络工具
-                Text(
-                    "网络工具",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(16.dp, 8.dp)
-                )
-                DrawerItem(Icons.Filled.Terminal, "SSH终端", "ssh") { drawerOpen = false; onOpen("ssh") }
-                DrawerItem(Icons.Filled.Dns, "VPN代理", "vpn") { drawerOpen = false; onOpen("vpn") }
-                DrawerItem(Icons.Filled.Shield, "Shizuku", "shizuku") { drawerOpen = false; onOpen("shizuku") }
-                DrawerItem(Icons.Filled.Devices, "ADB管理器", "adb") { drawerOpen = false; onOpen("adb") }
-
-                // 功能分类 - 文件工具
-                Text(
-                    "文件工具",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(16.dp, 8.dp)
-                )
-                DrawerItem(Icons.Filled.FolderOpen, "文件管理器", "files") { drawerOpen = false; onOpen("files") }
-                DrawerItem(Icons.Filled.Download, "下载器", "download") { drawerOpen = false; onOpen("download") }
-
-                // 功能分类 - 其他工具
-                Text(
-                    "其他工具",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(16.dp, 8.dp)
-                )
-                DrawerItem(Icons.Filled.GraphicEq, "分贝仪", "decibel") { drawerOpen = false; onOpen("decibel") }
-                DrawerItem(Icons.Filled.Article, "日志查看", "log") { drawerOpen = false; onOpen("log") }
-
-                Spacer(Modifier.weight(1f))
-                Divider()
-
-                // 底部菜单
-                DrawerItem(Icons.Filled.Settings, "设置", "settings") { drawerOpen = false; onOpen("settings") }
-                DrawerItem(Icons.Filled.Person, "开发者信息", "about") { drawerOpen = false; onOpen("about") }
-                Spacer(Modifier.height(16.dp))
+                // 功能列表
+                LazyColumn {
+                    item {
+                        Text(
+                            "网络工具",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(16.dp, 8.dp, 16.dp, 4.dp)
+                        )
+                    }
+                    item { DrawerItem(Icons.Filled.Terminal, "SSH终端", Routes.SSH) { selectedIndex = 0; onOpen(Routes.SSH); drawerState.close() } }
+                    item { DrawerItem(Icons.Filled.Dns, "VPN代理", Routes.VPN) { selectedIndex = 1; onOpen(Routes.VPN); drawerState.close() } }
+                    item { DrawerItem(Icons.Filled.Shield, "Shizuku", Routes.SHIZUKU) { selectedIndex = 2; onOpen(Routes.SHIZUKU); drawerState.close() } }
+                    item { DrawerItem(Icons.Filled.Devices, "ADB管理器", Routes.ADB) { selectedIndex = 3; onOpen(Routes.ADB); drawerState.close() } }
+                    
+                    item {
+                        Text(
+                            "文件工具",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)
+                        )
+                    }
+                    item { DrawerItem(Icons.Filled.FolderOpen, "文件管理器", Routes.FILES) { selectedIndex = 4; onOpen(Routes.FILES); drawerState.close() } }
+                    item { DrawerItem(Icons.Filled.Download, "下载器", Routes.DOWNLOAD) { selectedIndex = 5; onOpen(Routes.DOWNLOAD); drawerState.close() } }
+                    
+                    item {
+                        Text(
+                            "其他工具",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)
+                        )
+                    }
+                    item { DrawerItem(Icons.Filled.GraphicEq, "分贝仪", Routes.DECIBEL) { selectedIndex = 6; onOpen(Routes.DECIBEL); drawerState.close() } }
+                    item { DrawerItem(Icons.Filled.Article, "日志查看", Routes.LOG) { selectedIndex = 7; onOpen(Routes.LOG); drawerState.close() } }
+                    
+                    item { Spacer(Modifier.height(16.dp)) }
+                    Divider()
+                    
+                    item {
+                        Text(
+                            "系统",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)
+                        )
+                    }
+                    item { DrawerItem(Icons.Filled.Settings, "设置", Routes.SETTINGS) { selectedIndex = 8; onOpen(Routes.SETTINGS); drawerState.close() } }
+                    item { DrawerItem(Icons.Filled.Person, "开发者信息", Routes.ABOUT) { selectedIndex = 9; onOpen(Routes.ABOUT); drawerState.close() } }
+                    item { Spacer(Modifier.height(32.dp)) }
+                }
             }
         }
     ) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("") },
+                    title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold) },
                     navigationIcon = {
-                        IconButton(onClick = { drawerOpen = true }) {
-                            Icon(Icons.Filled.Menu, "菜单")
+                        IconButton(onClick = { 
+                            try { drawerState.open() } catch (e: Exception) {}
+                        }) {
+                            Icon(Icons.Filled.Menu, contentDescription = "菜单")
                         }
                     }
                 )
@@ -130,10 +152,15 @@ private fun DrawerItem(icon: ImageVector, label: String, route: String, onClick:
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
         Spacer(Modifier.width(16.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge)
     }
@@ -143,7 +170,7 @@ private fun DrawerItem(icon: ImageVector, label: String, route: String, onClick:
 private fun FeatureCard(feature: Feature, onClick: () -> Unit) {
     Card(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(
@@ -151,7 +178,7 @@ private fun FeatureCard(feature: Feature, onClick: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Icon(
