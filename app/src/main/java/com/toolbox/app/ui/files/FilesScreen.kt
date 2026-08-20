@@ -468,6 +468,7 @@ fun FilesScreen(onBack: () -> Unit) {
 }
 
 @Composable
+@Composable
 private fun navigationItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String) {
     NavigationBarItem(
         icon = { Icon(icon, label) },
