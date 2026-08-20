@@ -8,16 +8,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import com.toolbox.app.data.SettingsRepository
 import com.toolbox.app.data.UiSettings
 import com.toolbox.app.ui.App
-import com.toolbox.app.ui.splash.SplashScreen
 import com.toolbox.app.ui.theme.ToolboxTheme
 import java.util.Locale
 
@@ -42,6 +39,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 安装系统启动页（必须在 super.onCreate 之后，setContent 之前）
+        installSplashScreen()
+        
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 33) {
             registerForActivityResult(ActivityResultContracts.RequestPermission()) { }.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -54,22 +54,8 @@ class MainActivity : ComponentActivity() {
                 bgPreset = settings.bgPreset,
                 accentPreset = settings.accentPreset,
             ) {
-                SplashHost(repo = repo, settings = settings)
+                App(repo = repo)
             }
         }
-    }
-}
-
-@Composable
-private fun SplashHost(repo: SettingsRepository, settings: UiSettings) {
-    var showMain by remember { mutableStateOf(false) }
-    if (showMain) {
-        App(repo = repo)
-    } else {
-        SplashScreen(
-            settings = settings,
-            repo = repo,
-            onFinished = { showMain = true }
-        )
     }
 }
