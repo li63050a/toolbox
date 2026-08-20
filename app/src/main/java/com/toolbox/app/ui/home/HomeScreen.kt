@@ -36,7 +36,6 @@ private val features = listOf(
     Feature(Routes.LOG, R.string.home_log_title, R.string.home_log_desc, Icons.Filled.Article),
     Feature(Routes.DECIBEL, R.string.home_decibel_title, R.string.home_decibel_desc, Icons.Filled.GraphicEq),
     Feature(Routes.DOWNLOAD, R.string.home_dl_title, R.string.home_dl_desc, Icons.Filled.Download),
-    Feature(Routes.ADB, R.string.home_adb_title, R.string.home_adb_desc, Icons.Filled.Devices),
     Feature(Routes.MEDIA_TOOL, R.string.home_media_tool_title, R.string.home_media_tool_desc, Icons.Filled.VideoLibrary),
 )
 
@@ -74,7 +73,6 @@ fun HomeScreen(onOpen: (String) -> Unit) {
                     item { NavItem(Icons.Filled.Terminal, "SSH终端", Routes.SSH) { scope.launch { drawerState.close() }; onOpen(Routes.SSH) } }
                     item { NavItem(Icons.Filled.Dns, "VPN代理", Routes.VPN) { scope.launch { drawerState.close() }; onOpen(Routes.VPN) } }
                     item { NavItem(Icons.Filled.Shield, "Shizuku", Routes.SHIZUKU) { scope.launch { drawerState.close() }; onOpen(Routes.SHIZUKU) } }
-                    item { NavItem(Icons.Filled.Devices, "ADB管理器", Routes.ADB) { scope.launch { drawerState.close() }; onOpen(Routes.ADB) } }
                     
                     item { Text("文件工具", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(16.dp, 8.dp)) }
                     item { NavItem(Icons.Filled.FolderOpen, "文件管理器", Routes.FILES) { scope.launch { drawerState.close() }; onOpen(Routes.FILES) } }

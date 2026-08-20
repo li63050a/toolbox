@@ -8,10 +8,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.toolbox.app.data.SettingsRepository
 import com.toolbox.app.data.UiSettings
 import com.toolbox.app.ui.App
@@ -39,9 +40,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 安装系统启动页（必须在 super.onCreate 之后，setContent 之前）
-        installSplashScreen()
-        
+        val splashScreen = installSplashScreen()
+        var keepSplash by mutableStateOf(true)
+        splashScreen.setKeepOnScreenCondition { keepSplash }
+
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 33) {
             registerForActivityResult(ActivityResultContracts.RequestPermission()) { }.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -49,6 +51,7 @@ class MainActivity : ComponentActivity() {
         val repo = SettingsRepository(applicationContext)
         setContent {
             val settings by repo.settings.collectAsState(initial = UiSettings())
+            keepSplash = false
             ToolboxTheme(
                 themeMode = settings.themeMode,
                 bgPreset = settings.bgPreset,
