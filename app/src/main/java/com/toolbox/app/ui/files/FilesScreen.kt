@@ -137,7 +137,7 @@ fun FilesScreen(onBack: () -> Unit) {
                 Divider(modifier = Modifier.padding(vertical = 8.dp))
                 StorageItem(Icons.Filled.FolderOpen, "内部存储", getStoragePath()) { showTargetMenu = false }
                 StorageItem(Icons.Filled.Download, "Download", "${getStoragePath()}/Download") { showTargetMenu = false }
-                StorageItem(Icons.Filled.Picture, "DCIM", "${getStoragePath()}/DCIM") { showTargetMenu = false }
+                StorageItem(Icons.Filled.PhotoLibrary, "DCIM", "${getStoragePath()}/DCIM") { showTargetMenu = false }
             }
         }
     }
@@ -176,9 +176,9 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     ) { padding ->
         Row(Modifier.fillMaxSize().padding(padding)) {
-            FilePanel("左", leftPath, leftEntries) { leftPath = it } { selectedEntry = it } { selectedEntry = it; showActionMenu = true }
+            FilePanel("左", leftPath, leftEntries, { leftPath = it }, { selectedEntry = it }, { selectedEntry = it; showActionMenu = true })
             VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
-            FilePanel("右", rightPath, rightEntries) { rightPath = it } { selectedEntry = it } { selectedEntry = it; showActionMenu = true }
+            FilePanel("右", rightPath, rightEntries, { rightPath = it }, { selectedEntry = it }, { selectedEntry = it; showActionMenu = true })
         }
     }
 }
