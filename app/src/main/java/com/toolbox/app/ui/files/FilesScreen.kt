@@ -41,7 +41,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.concurrent.thread
 import rikka.shizuku.Shizuku
 
 fun checkPermission(ctx: Context): Boolean {
@@ -134,10 +133,11 @@ fun FilesScreen(onBack: () -> Unit) {
     fun loadFiles(target: FsTarget, path: String, isLeft: Boolean) {
         when (target) {
             is FsTarget.Local -> {
-                thread {
-                    val entries = try {
+                if (isLeft) leftLoading = true else rightLoading = true
+                scope.launch(Dispatchers.IO) {
+                    try {
                         val dir = File(path)
-                        if (!dir.exists() || !dir.isDirectory) emptyList()
+                        val entries = if (!dir.exists() || !dir.isDirectory) emptyList()
                         else dir.listFiles()?.filter { it.name != "." && it.name != ".." }
                             ?.map { f ->
                                 FileEntry(
@@ -150,11 +150,16 @@ fun FilesScreen(onBack: () -> Unit) {
                             }
                             ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
                             ?: emptyList()
+                        withContext(Dispatchers.Main) {
+                            if (isLeft) { leftEntries = entries; leftLoading = false }
+                            else { rightEntries = entries; rightLoading = false }
+                        }
                     } catch (e: Exception) {
-                        emptyList()
+                        withContext(Dispatchers.Main) {
+                            if (isLeft) leftLoading = false else rightLoading = false
+                        }
                     }
-                    if (isLeft) leftEntries = entries else rightEntries = entries
-                }.start()
+                }
             }
             is FsTarget.Shizuku -> {
                 if (isLeft) leftLoading = true else rightLoading = true
