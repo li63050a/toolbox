@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.easytier.jni.EasyTierJNI
 import com.toolbox.app.easytier.EasyTierConfig
 import com.toolbox.app.easytier.EasyTierManager
 import com.toolbox.app.easytier.NetworkSnapshot

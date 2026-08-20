@@ -1,19 +1,12 @@
 package com.toolbox.app.easytier
 
 import android.content.Context
-import android.net.VpnService
-import android.os.Build
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.annotation.Keep
-import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
-import com.toolbox.app.R
+import com.easytier.jni.EasyTierJNI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 
 private const val TAG = "EasyTier"
 
@@ -41,26 +34,6 @@ data class NetworkSnapshot(
     val error: String? = null
 )
 
-object EasyTierJNI {
-    init {
-        System.loadLibrary("easytier_android_jni")
-    }
-
-    @JvmStatic
-    external fun runNetworkInstance(config: String): Int
-    @JvmStatic
-    external fun stopAllInstances(): Int
-    @JvmStatic
-    external fun retainNetworkInstance(names: Array<String>?): Int
-    @JvmStatic
-    external fun collectNetworkInfos(maxLength: Int): String?
-    @JvmStatic
-    external fun getLastError(): String?
-
-    fun stop() = stopAllInstances()
-    fun retain(name: String) = retainNetworkInstance(arrayOf(name))
-}
-
 data class EasyTierConfig(
     val instanceName: String = "toolbox",
     val networkName: String = "",
@@ -79,7 +52,9 @@ data class EasyTierConfig(
         val sb = StringBuilder()
         sb.appendLine("[network_identity]")
         sb.appendLine("network_name = \"${networkName}\"")
-        if (networkSecret.isNotEmpty()) sb.appendLine("network_secret = \"${networkSecret.replace("\"", "\\\"")}\"")
+        if (networkSecret.isNotEmpty()) {
+            sb.appendLine("network_secret = \"${networkSecret.replace("\"", "\\\"")}\"")
+        }
         sb.appendLine()
 
         if (peers.isNotBlank()) {
@@ -123,22 +98,20 @@ class EasyTierManager(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("easytier_config", Context.MODE_PRIVATE)
 
-    fun loadConfig(): EasyTierConfig {
-        return EasyTierConfig(
-            instanceName = prefs.getString("instance_name", "toolbox") ?: "toolbox",
-            networkName = prefs.getString("network_name", "") ?: "",
-            networkSecret = prefs.getString("network_secret", "") ?: "",
-            peers = prefs.getString("peers", "tcp://public.easytier.top:11010") ?: "tcp://public.easytier.top:11010",
-            virtualIpv4 = prefs.getString("virtual_ipv4", "") ?: "",
-            dhcp = prefs.getBoolean("dhcp", true),
-            listenerUrls = prefs.getString("listener_urls", "tcp://0.0.0.0:11010\nudp://0.0.0.0:11010") ?: "tcp://0.0.0.0:11010\nudp://0.0.0.0:11010",
-            acceptDns = prefs.getBoolean("accept_dns", false),
-            disableP2p = prefs.getBoolean("disable_p2p", false),
-            relayNetworkWhitelist = prefs.getString("relay_whitelist", "") ?: "",
-            tldDnsZone = prefs.getString("tld_dns_zone", "") ?: "",
-            hostname = prefs.getString("hostname", "") ?: ""
-        )
-    }
+    fun loadConfig(): EasyTierConfig = EasyTierConfig(
+        instanceName = prefs.getString("instance_name", "toolbox") ?: "toolbox",
+        networkName = prefs.getString("network_name", "") ?: "",
+        networkSecret = prefs.getString("network_secret", "") ?: "",
+        peers = prefs.getString("peers", "tcp://public.easytier.top:11010") ?: "tcp://public.easytier.top:11010",
+        virtualIpv4 = prefs.getString("virtual_ipv4", "") ?: "",
+        dhcp = prefs.getBoolean("dhcp", true),
+        listenerUrls = prefs.getString("listener_urls", "tcp://0.0.0.0:11010\nudp://0.0.0.0:11010") ?: "tcp://0.0.0.0:11010\nudp://0.0.0.0:11010",
+        acceptDns = prefs.getBoolean("accept_dns", false),
+        disableP2p = prefs.getBoolean("disable_p2p", false),
+        relayNetworkWhitelist = prefs.getString("relay_whitelist", "") ?: "",
+        tldDnsZone = prefs.getString("tld_dns_zone", "") ?: "",
+        hostname = prefs.getString("hostname", "") ?: ""
+    )
 
     fun saveConfig(config: EasyTierConfig) {
         prefs.edit().apply {
@@ -187,9 +160,7 @@ class EasyTierManager(private val context: Context) {
 
     suspend fun getStatus(): NetworkSnapshot = withContext(Dispatchers.IO) {
         val info = EasyTierJNI.collectNetworkInfos(20)
-        if (info.isNullOrBlank()) {
-            return@withContext NetworkSnapshot(isRunning = isRunning)
-        }
+        if (info.isNullOrBlank()) return@withContext NetworkSnapshot(isRunning = isRunning)
         try {
             parseNetworkInfo(info)
         } catch (e: Exception) {
@@ -237,21 +208,12 @@ class EasyTierManager(private val context: Context) {
                 val nat = when {
                     natRaw is String -> natRaw
                     natRaw is Int -> when (natRaw) {
-                        1 -> "开放互联网"
-                        3 -> "完全锥形"
-                        5 -> "端口限制锥形"
-                        6 -> "对称型"
-                        else -> "未知"
+                        1 -> "开放互联网"; 3 -> "完全锥形"; 5 -> "端口限制锥形"
+                        6 -> "对称型"; else -> "未知"
                     }
                     else -> "未知"
                 }
-                peers.add(PeerInfo(
-                    hostname = peerHostname,
-                    virtualIp = virtIp,
-                    isDirect = route.optLong("next_hop_peer_id", -1) == peerId,
-                    latency = latency,
-                    natType = nat
-                ))
+                peers.add(PeerInfo(peerHostname, virtIp, route.optLong("next_hop_peer_id", -1) == peerId, latency, nat))
             }
         }
 
