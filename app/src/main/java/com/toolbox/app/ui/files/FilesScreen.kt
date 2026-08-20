@@ -432,11 +432,15 @@ fun FilesScreen(onBack: () -> Unit) {
                 )
             },
             bottomBar = {
-                NavigationBar {
-                    navigationItem(Icons.Filled.Add, "新建")
-                    navigationItem(Icons.Filled.Upload, "上传")
-                    navigationItem(Icons.Filled.Download, "下载")
-                    navigationItem(Icons.Filled.Settings, "设置")
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceAround,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    navButton(Icons.Filled.Add, "新建")
+                    navButton(Icons.Filled.Upload, "上传")
+                    navButton(Icons.Filled.Download, "下载")
+                    navButton(Icons.Filled.Settings, "设置")
                 }
             }
         ) { padding ->
@@ -468,13 +472,11 @@ fun FilesScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun navigationItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String) {
-    NavigationBarItem(
-        icon = { Icon(icon, label) },
-        label = { Text(label) },
-        selected = false,
-        onClick = {}
-    )
+private fun navButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, label, modifier = Modifier.size(24.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall)
+    }
 }
 
 @Composable
