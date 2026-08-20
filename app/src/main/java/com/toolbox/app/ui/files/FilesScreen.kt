@@ -25,11 +25,38 @@ import kotlin.concurrent.thread
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
     var leftPath by remember { mutableStateOf("/storage/emulated/0") }
     var rightPath by remember { mutableStateOf("/storage/emulated/0") }
     var leftEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     var rightEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    var showActionMenu by remember { mutableStateOf(false) }
+    var selectedEntry by remember { mutableStateOf<FileEntry?>(null) }
+
+    fun loadEntries(path: String, isLeft: Boolean) {
+        thread {
+            val entries = try {
+                val dir = File(path)
+                if (!dir.exists() || !dir.isDirectory) emptyList()
+                else dir.listFiles()?.filter { it.name != "." && it.name != ".." }
+                    ?.map { f ->
+                        FileEntry(
+                            path = f.absolutePath,
+                            name = f.name,
+                            isDirectory = f.isDirectory,
+                            size = if (f.isFile) f.length() else 0L,
+                            modified = f.lastModified()
+                        )
+                    }
+                    ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                    ?: emptyList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+            if (isLeft) leftEntries = entries else rightEntries = entries
+        }.start()
+    }
 
     LaunchedEffect(leftPath, rightPath) {
         loadEntries(leftPath, true)
@@ -65,7 +92,7 @@ fun FilesScreen(onBack: () -> Unit) {
                         }
                     },
                     actions = {
-                        IconButton(onClick = { drawerOpen = true }) {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Filled.Menu, stringResource(R.string.file_more))
                         }
                     }
@@ -79,7 +106,7 @@ fun FilesScreen(onBack: () -> Unit) {
                     entries = leftEntries,
                     onNavigate = { leftPath = it },
                     onClick = { selectedEntry = it },
-                    onLongClick = { selectedEntry = it; showActionMenu = true; currentSide = "left" }
+                    onLongClick = { selectedEntry = it; showActionMenu = true }
                 )
                 VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
                 FilePanel(
@@ -88,7 +115,7 @@ fun FilesScreen(onBack: () -> Unit) {
                     entries = rightEntries,
                     onNavigate = { rightPath = it },
                     onClick = { selectedEntry = it },
-                    onLongClick = { selectedEntry = it; showActionMenu = true; currentSide = "right" }
+                    onLongClick = { selectedEntry = it; showActionMenu = true }
                 )
             }
         }
