@@ -43,6 +43,16 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.concurrent.thread
 
+fun checkPermission(ctx: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Environment.isExternalStorageManager()
+    } else {
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+    }
+}
+
+fun getStoragePath(): String = Environment.getExternalStorageDirectory().absolutePath
+
 sealed interface FsTarget {
     data object Local : FsTarget
     data class Ssh(val cfg: ConnectionConfig.Ssh) : FsTarget
@@ -85,20 +95,11 @@ fun FilesScreen(onBack: () -> Unit) {
     var showActionMenu by remember { mutableStateOf(false) }
     var actionMenuSide by remember { mutableStateOf("left") }
     var showTargetMenu by remember { mutableStateOf<String?>(null) }
-    var pendingTransfer by remember { mutableStateOf<TransferAction?>(null) }
     var snackbarHostState = remember { SnackbarHostState() }
 
     val runtimePermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ -> refreshFiles(leftTarget, leftPath, true); refreshFiles(rightTarget, rightPath, false) }
-
-    fun hasPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-        }
-    }
 
     fun requestPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -113,8 +114,6 @@ fun FilesScreen(onBack: () -> Unit) {
             runtimePermLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
         }
     }
-
-    fun getStoragePath(): String = Environment.getExternalStorageDirectory().absolutePath
 
     fun loadLocalFiles(path: String, isLeft: Boolean) {
         thread {
@@ -180,64 +179,45 @@ fun FilesScreen(onBack: () -> Unit) {
     LaunchedEffect(leftTarget, leftPath) { refreshFiles(leftTarget, leftPath, true) }
     LaunchedEffect(rightTarget, rightPath) { refreshFiles(rightTarget, rightPath, false) }
 
-    // 执行传输
     fun executeTransfer(action: TransferAction) {
         scope.launch {
             val targetPath = if (action.fromSide == "left") rightPath else leftPath
-            val targetOps = if (action.fromSide == "left") getOps(rightTarget, rightPath) else getOps(leftTarget, leftPath)
-            
-            if (targetOps == null) {
-                snackbarHostState.showSnackbar("目标不可用")
-                return@launch
-            }
-
-            val localUri = if (action.fromSide == "left") {
-                Uri.parse(action.entry.path)
-            } else {
-                Uri.parse(action.entry.path)
-            }
-
-            val remotePath = if (action.type == TransferAction.TransferType.DOWNLOAD) {
-                // 远程下载到本地
-                action.entry.path
-            } else {
-                // 本地上传到远程
-                "$targetPath/${action.entry.name}"
-            }
-
             try {
                 when (action.type) {
                     TransferAction.TransferType.DOWNLOAD -> {
-                        // 从远程下载到本地
                         val localPath = "${getStoragePath()}/Download/${action.entry.name}"
                         val localFile = File(localPath)
                         localFile.parentFile?.mkdirs()
                         
-                        val targetClient = when (val t = if (action.fromSide == "left") leftTarget else rightTarget) {
-                            is FsTarget.Ftp -> FtpClient((t as FsTarget.Ftp).cfg).connect().getOrNull()
-                            is FsTarget.Ssh -> SshEngine((t as FsTarget.Ssh).cfg).connect().getOrNull()
+                        val sourceClient = when (val s = if (action.fromSide == "left") leftTarget else rightTarget) {
+                            is FsTarget.Ftp -> FtpClient((s as FsTarget.Ftp).cfg).connect().getOrNull()
+                            is FsTarget.Ssh -> SshEngine((s as FsTarget.Ssh).cfg).connect().getOrNull()
                             else -> null
                         }
                         
-                        if (targetClient != null) {
-                            when (targetClient) {
+                        if (sourceClient != null) {
+                            val input = when (sourceClient) {
                                 is org.apache.commons.net.ftp.FTPClient -> {
-                                    val out = java.io.FileOutputStream(localFile)
-                                    targetClient.retrieveFileStream(remotePath)?.use { input ->
-                                        input.copyTo(out)
-                                    }
-                                    out.close()
-                                    targetClient.completePendingCommand()
+                                    sourceClient.controlEncoding = "UTF-8"
+                                    sourceClient.retrieveFileStream(action.entry.path)
                                 }
+                                else -> null
                             }
-                            runCatching { targetClient.logout() }
-                            runCatching { targetClient.disconnect() }
+                            
+                            if (input != null) {
+                                localFile.outputStream().use { out ->
+                                    input.copyTo(out)
+                                }
+                                when (sourceClient) {
+                                    is org.apache.commons.net.ftp.FTPClient -> sourceClient.completePendingCommand()
+                                }
+                                runCatching { sourceClient.logout() }
+                                runCatching { sourceClient.disconnect() }
+                                snackbarHostState.showSnackbar("已下载到: $localPath")
+                            }
                         }
-                        
-                        snackbarHostState.showSnackbar("已下载到: $localPath")
                     }
                     TransferAction.TransferType.MOVE, TransferAction.TransferType.COPY -> {
-                        // 从本地上传到远程
                         val sourceClient = when (val s = if (action.fromSide == "left") leftTarget else rightTarget) {
                             is FsTarget.Ftp -> FtpClient((s as FsTarget.Ftp).cfg).connect().getOrNull()
                             is FsTarget.Ssh -> SshEngine((s as FsTarget.Ssh).cfg).connect().getOrNull()
@@ -276,7 +256,7 @@ fun FilesScreen(onBack: () -> Unit) {
                                     localFile.delete()
                                 }
                                 
-                                snackbarHostState.showSnackbar(if (action.type == TransferAction.TransferType.MOVE) "已移动到远程" else "已复制到远程")
+                                snackbarHostState.showSnackbar(if (action.type == TransferAction.TransferType.MOVE) "已移动" else "已复制")
                             }
                             
                             runCatching { sourceClient.logout() }
@@ -287,7 +267,6 @@ fun FilesScreen(onBack: () -> Unit) {
                     }
                 }
                 
-                // 刷新列表
                 refreshFiles(leftTarget, leftPath, true)
                 refreshFiles(rightTarget, rightPath, false)
             } catch (e: Exception) {
@@ -296,9 +275,6 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     }
 
-    fun getOps(target: FsTarget, path: String): Any? = null
-
-    // 目标选择菜单
     if (showTargetMenu != null) {
         AlertDialog(
             onDismissRequest = { showTargetMenu = null },
@@ -306,13 +282,8 @@ fun FilesScreen(onBack: () -> Unit) {
             text = {
                 Column {
                     StorageOption(Icons.Filled.FolderOpen, "本地存储", FsTarget.Local) { target ->
-                        if (showTargetMenu == "left") {
-                            leftTarget = target
-                            leftPath = getStoragePath()
-                        } else {
-                            rightTarget = target
-                            rightPath = getStoragePath()
-                        }
+                        if (showTargetMenu == "left") { leftTarget = target; leftPath = getStoragePath() }
+                        else { rightTarget = target; rightPath = getStoragePath() }
                         showTargetMenu = null
                     }
                     Divider()
@@ -339,16 +310,13 @@ fun FilesScreen(onBack: () -> Unit) {
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showTargetMenu = null }) { Text("取消") }
-            }
+            confirmButton = { TextButton(onClick = { showTargetMenu = null }) { Text("取消") } }
         )
     }
 
-    // 操作菜单 - 显示下载/移动选项
     if (showActionMenu && selectedEntry != null) {
-        val isRemoteSource = (actionMenuSide == "left" && leftTarget !is FsTarget.Local) || (actionMenuSide == "right" && rightTarget !is FsTarget.Local)
-        val isRemoteDest = (actionMenuSide == "left" && rightTarget !is FsTarget.Local) || (actionMenuSide == "right" && leftTarget !is FsTarget.Local)
+        val hasRemote = (actionMenuSide == "left" && leftTarget !is FsTarget.Local) || (actionMenuSide == "right" && rightTarget !is FsTarget.Local)
+        val needUpload = (actionMenuSide == "left" && rightTarget !is FsTarget.Local) || (actionMenuSide == "right" && leftTarget !is FsTarget.Local)
         
         AlertDialog(
             onDismissRequest = { showActionMenu = false },
@@ -358,35 +326,21 @@ fun FilesScreen(onBack: () -> Unit) {
                     Text("类型: ${if (selectedEntry!!.isDirectory) "文件夹" else "文件"}")
                     if (!selectedEntry!!.isDirectory) Text("大小: ${formatSize(selectedEntry!!.size)}")
                     Text("路径: ${selectedEntry!!.path}")
-                    
-                    if (isRemoteSource || isRemoteDest) {
-                        Spacer(Modifier.height(12.dp))
-                        Text("可用操作:", style = MaterialTheme.typography.titleSmall)
-                    }
                 }
             },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { showActionMenu = false }) { Text("关闭") }
-                    if (isRemoteSource || isRemoteDest) {
-                        Button(
-                            onClick = { 
-                                pendingTransfer = TransferAction(TransferAction.TransferType.DOWNLOAD, selectedEntry!!, actionMenuSide)
-                                showActionMenu = false
-                                executeTransfer(pendingTransfer!!)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) { Text("下载") }
-                    }
-                }
-            },
+            confirmButton = { Button(onClick = { showActionMenu = false }) { Text("关闭") } },
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (isRemoteSource || isRemoteDest) {
+                    if (hasRemote) {
                         TextButton(onClick = { 
-                            pendingTransfer = TransferAction(TransferAction.TransferType.MOVE, selectedEntry!!, actionMenuSide)
+                            executeTransfer(TransferAction(TransferAction.TransferType.DOWNLOAD, selectedEntry!!, actionMenuSide))
                             showActionMenu = false
-                            executeTransfer(pendingTransfer!!)
+                        }) { Text("下载", color = MaterialTheme.colorScheme.primary) }
+                    }
+                    if (needUpload) {
+                        TextButton(onClick = { 
+                            executeTransfer(TransferAction(TransferAction.TransferType.MOVE, selectedEntry!!, actionMenuSide))
+                            showActionMenu = false
                         }) { Text("移动", color = MaterialTheme.colorScheme.primary) }
                     }
                     TextButton(onClick = { showActionMenu = false }) { Text("删除", color = MaterialTheme.colorScheme.error) }
@@ -395,8 +349,7 @@ fun FilesScreen(onBack: () -> Unit) {
         )
     }
 
-    // 权限不足提示
-    if (!hasPermission() && (leftTarget is FsTarget.Local || rightTarget is FsTarget.Local)) {
+    if (!checkPermission(context) && (leftTarget is FsTarget.Local || rightTarget is FsTarget.Local)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Filled.Lock, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
@@ -411,7 +364,6 @@ fun FilesScreen(onBack: () -> Unit) {
         return
     }
 
-    // 主界面
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -468,33 +420,15 @@ private fun FilePanel(
     onLongClick: (FileEntry) -> Unit
 ) {
     Column(modifier = Modifier.weight(1f).fillMaxSize()) {
-        // 路径栏
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                target.icon(),
-                null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
+            Icon(target.icon(), null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(6.dp))
-            Text(
-                target.label(),
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary
-            )
+            Text(target.label(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(6.dp))
-            Text(
-                path,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(path, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
             IconButton(onClick = { onNavigate(File(path).parent ?: "/") }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
             }
@@ -502,28 +436,14 @@ private fun FilePanel(
         Divider(color = MaterialTheme.colorScheme.outlineVariant)
         
         if (loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else if (entries.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("空目录", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("空目录", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 4.dp)
-            ) {
+            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
                 if (path != "/") {
                     item {
-                        FileRow(
-                            name = "..",
-                            isDirectory = true,
-                            size = 0,
-                            modified = 0,
-                            onClick = { onNavigate(File(path).parent ?: "/") },
-                            onLongClick = {}
-                        )
+                        FileRow(name = "..", isDirectory = true, size = 0, modified = 0, onClick = { onNavigate(File(path).parent ?: "/") }, onLongClick = {})
                     }
                 }
                 items(entries) { entry ->
@@ -532,9 +452,7 @@ private fun FilePanel(
                         isDirectory = entry.isDirectory,
                         size = entry.size,
                         modified = entry.modified,
-                        onClick = { 
-                            if (entry.isDirectory) onNavigate(entry.path) else onClick(entry)
-                        },
+                        onClick = { if (entry.isDirectory) onNavigate(entry.path) else onClick(entry) },
                         onLongClick = { onLongClick(entry) }
                     )
                 }
@@ -553,45 +471,15 @@ private fun FileRow(
     onLongClick: () -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .longClickable(onClick = onLongClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-            .background(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = MaterialTheme.shapes.medium
-            ),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).longClickable(onClick = onLongClick).padding(horizontal = 12.dp, vertical = 10.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = MaterialTheme.shapes.medium),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            if (isDirectory) Icons.Filled.Folder else getFileIcon(name),
-            contentDescription = null,
-            tint = if (isDirectory) Color(0xFFFFA000) else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(28.dp)
-        )
-        
-        Column(
-            modifier = Modifier.weight(1f).padding(horizontal = 10.dp)
-        ) {
-            Text(
-                name,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (!isDirectory) {
-                Text(
-                    formatSize(size),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+        Icon(if (isDirectory) Icons.Filled.Folder else getFileIcon(name), null, tint = if (isDirectory) Color(0xFFFFA000) else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+        Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+            Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (!isDirectory) Text(formatSize(size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        
-        if (isDirectory) {
-            Icon(Icons.Filled.ChevronRight, null, modifier = Modifier.size(18.dp), tint = Color.Gray.copy(alpha = 0.6f))
-        }
+        if (isDirectory) Icon(Icons.Filled.ChevronRight, null, modifier = Modifier.size(18.dp), tint = Color.Gray.copy(alpha = 0.6f))
     }
 }
 
@@ -618,13 +506,7 @@ private fun formatSize(size: Long): String = when {
 
 @Composable
 private fun StorageOption(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, target: FsTarget, onClick: (FsTarget) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick(target) }
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(modifier = Modifier.fillMaxWidth().clickable { onClick(target) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(12.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge)
