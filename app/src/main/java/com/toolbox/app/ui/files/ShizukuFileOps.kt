@@ -18,55 +18,29 @@ class ShizukuFileOps(private val context: Context) : FileOps {
     override fun displayName(): String = "Shizuku /"
 
     override suspend fun list(path: String): Result<List<FileEntry>> = runCatching {
-        if (!isRunning()) return Result.failure(Exception("Shizuku 未运行"))
-        if (Shizuku.checkSelfPermission() != 0) return Result.failure(Exception("Shizuku 权限未授权"))
+        if (!isRunning()) throw Exception("Shizuku 未运行")
+        if (Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 权限未授权")
         
         val cmd = "ls -la \"$path\" 2>/dev/null | grep -v '^total'"
-        val output = executeCommand(cmd) ?: return@runCatching emptyList()
+        val output = executeCommand(cmd) ?: emptyList()
         
-        val entries = output.split("\n").filter { it.isNotEmpty() }
-            .drop(1)
-            .mapNotNull { line ->
-                try {
-                    val parts = line.split(Regex("\\s+"))
-                    if (parts.size < 9) null
-                    else {
-                        val perms = parts[0]
-                        val isDir = perms.startsWith("d")
-                        val name = parts[8]
-                        val size = try { parts[4].toLong() } catch (e: Exception) { 0L }
-                        
-                        FileEntry(
-                            path = if (isDir && !name.endsWith("/")) "$path$name/" else "$path$name",
-                            name = name,
-                            isDirectory = isDir,
-                            size = size,
-                            modified = 0L
-                        )
-                    }
-                } catch (e: Exception) {
-                    null
-                }
-            }
-            .filter { it.name != "." && it.name != ".." }
+        output.filter { it.name != "." && it.name != ".." }
             .sortedBy { !it.isDirectory }
-        
-        Result.success(entries)
     }
 
     override suspend fun mkdir(path: String): Result<Unit> = runCatching {
-        if (!isRunning() || Shizuku.checkSelfPermission() != 0) return Result.failure(Exception("Shizuku 未授权"))
+        if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
         executeCommand("mkdir -p \"$path\"")
     }
 
     override suspend fun delete(path: String): Result<Unit> = runCatching {
-        if (!isRunning() || Shizuku.checkSelfPermission() != 0) return Result.failure(Exception("Shizuku 未授权"))
+        if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
         val cmd = if (path.endsWith("/")) "rm -rf \"$path\"" else "rm -f \"$path\""
         executeCommand(cmd)
     }
 
     override suspend fun rename(oldPath: String, newName: String): Result<Unit> = runCatching {
-        if (!isRunning() || Shizuku.checkSelfPermission() != 0) return Result.failure(Exception("Shizuku 未授权"))
+        if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
         val parent = oldPath.substringBeforeLast('/', "").let { if (it.isEmpty()) "/" else it }
         executeCommand("mv \"$oldPath\" \"$parent/$newName\"")
     }
@@ -80,7 +54,7 @@ class ShizukuFileOps(private val context: Context) : FileOps {
     }
 
     override suspend fun chmod(path: String, mode: Int): Result<Unit> = runCatching {
-        if (!isRunning() || Shizuku.checkSelfPermission() != 0) return Result.failure(Exception("Shizuku 未授权"))
+        if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
         val modeStr = String.format("%04o", mode)
         executeCommand("chmod $modeStr \"$path\"")
     }
@@ -91,11 +65,10 @@ class ShizukuFileOps(private val context: Context) : FileOps {
         Shizuku.requestPermission(0)
     }
 
-    private fun executeCommand(cmd: String): String? {
+    private fun executeCommand(cmd: String): List<FileEntry>? {
         try {
             val binder = Shizuku.getBinder() ?: return null
-            val service = android.os.ServiceManager.getService("shizuku")
-            if (service == null) return null
+            if (binder == null) return null
             
             val clazz = Class.forName("rikka.shizuku.Shizuku")
             val method = clazz.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
@@ -106,19 +79,41 @@ class ShizukuFileOps(private val context: Context) : FileOps {
             val reader = BufferedReader(InputStreamReader(process.inputStream))
             val errReader = BufferedReader(InputStreamReader(process.errorStream))
             
-            val output = StringBuilder()
+            val errorOutput = StringBuilder()
             var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                output.append(line).append("\n")
-            }
             while (errReader.readLine().also { line = it } != null) {
-                output.append("ERR: ").append(line).append("\n")
+                errorOutput.append(line).append("\n")
+            }
+            
+            val entries = mutableListOf<FileEntry>()
+            while (reader.readLine().also { line = it } != null) {
+                if (line.isNullOrEmpty() || line.startsWith("total")) continue
+                try {
+                    val parts = line.split(Regex("\\s+"))
+                    if (parts.size < 9) continue
+                    val perms = parts[0]
+                    val isDir = perms.startsWith("d")
+                    val name = parts[8]
+                    val size = try { parts[4].toLong() } catch (e: Exception) { 0L }
+                    
+                    entries.add(
+                        FileEntry(
+                            path = if (isDir && !name.endsWith("/")) "$path$name/" else "$path$name",
+                            name = name,
+                            isDirectory = isDir,
+                            size = size,
+                            modified = 0L
+                        )
+                    )
+                } catch (e: Exception) {
+                    // skip malformed lines
+                }
             }
             
             process.waitFor()
             process.destroy()
             
-            return output.toString().trim().takeIf { it.isNotEmpty() }
+            return entries
         } catch (e: Exception) {
             e.printStackTrace()
             return null
