@@ -29,10 +29,9 @@ fun FilesScreen(onBack: () -> Unit) {
     var rightPath by remember { mutableStateOf("/storage/emulated/0") }
     var leftEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     var rightEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    var showDrawer by remember { mutableStateOf(false) }
     var showActionMenu by remember { mutableStateOf(false) }
     var selectedEntry by remember { mutableStateOf<FileEntry?>(null) }
-    val scope = rememberCoroutineScope()
 
     fun loadEntries(path: String, isLeft: Boolean) {
         thread {
@@ -63,65 +62,60 @@ fun FilesScreen(onBack: () -> Unit) {
         loadEntries(rightPath, false)
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            Surface(color = MaterialTheme.colorScheme.surface) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("选择存储", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
-                    
-                    Text("本地存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
-                    StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0") {
-                        leftPath = "/storage/emulated/0"
-                        rightPath = "/storage/emulated/0"
-                        scope.launch { drawerState.close() }
-                    }
-                    StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download") {
-                        leftPath = "/storage/emulated/0/Download"
-                        rightPath = "/storage/emulated/0/Download"
-                        scope.launch { drawerState.close() }
-                    }
-                }
+    ModalBottomSheet(onDismissRequest = { showDrawer = false }, showDialog = showDrawer) {
+        Column(Modifier.padding(16.dp)) {
+            Text("选择存储", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Divider(modifier = Modifier.padding(vertical = 8.dp))
+            
+            Text("本地存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
+            StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0") {
+                leftPath = "/storage/emulated/0"
+                rightPath = "/storage/emulated/0"
+                showDrawer = false
+            }
+            StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download") {
+                leftPath = "/storage/emulated/0/Download"
+                rightPath = "/storage/emulated/0/Download"
+                showDrawer = false
             }
         }
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text(stringResource(R.string.home_files_title), fontWeight = FontWeight.Bold) },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.file_back))
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Filled.Menu, stringResource(R.string.file_more))
-                        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.home_files_title), fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.file_back))
                     }
-                )
-            }
-        ) { padding ->
-            Row(Modifier.fillMaxSize().padding(padding)) {
-                FilePanel(
-                    side = "左",
-                    path = leftPath,
-                    entries = leftEntries,
-                    onNavigate = { leftPath = it },
-                    onClick = { selectedEntry = it },
-                    onLongClick = { selectedEntry = it; showActionMenu = true }
-                )
-                VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
-                FilePanel(
-                    side = "右",
-                    path = rightPath,
-                    entries = rightEntries,
-                    onNavigate = { rightPath = it },
-                    onClick = { selectedEntry = it },
-                    onLongClick = { selectedEntry = it; showActionMenu = true }
-                )
-            }
+                },
+                actions = {
+                    IconButton(onClick = { showDrawer = true }) {
+                        Icon(Icons.Filled.Menu, stringResource(R.string.file_more))
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Row(Modifier.fillMaxSize().padding(padding)) {
+            FilePanel(
+                side = "左",
+                path = leftPath,
+                entries = leftEntries,
+                onNavigate = { leftPath = it },
+                onClick = { selectedEntry = it },
+                onLongClick = { selectedEntry = it; showActionMenu = true }
+            )
+            VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
+            FilePanel(
+                side = "右",
+                path = rightPath,
+                entries = rightEntries,
+                onNavigate = { rightPath = it },
+                onClick = { selectedEntry = it },
+                onLongClick = { selectedEntry = it; showActionMenu = true }
+            )
         }
     }
 
