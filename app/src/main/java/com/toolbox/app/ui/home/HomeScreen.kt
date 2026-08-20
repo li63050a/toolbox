@@ -13,6 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,11 +46,22 @@ private val features = listOf(
 fun HomeScreen(onOpen: (String) -> Unit) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+
+    val isTablet = configuration.smallestScreenWidthDp >= 600
+    val drawerWidthDp = if (isTablet) {
+        with(density) { (configuration.screenWidthDp * 2f / 5f).toDp() }
+    } else {
+        Modifier.fillMaxSize()
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet {
+            ModalDrawerSheet(
+                modifier = if (isTablet) Modifier.width(drawerWidthDp) else Modifier.fillMaxSize()
+            ) {
                 Row(
                     Modifier.fillMaxWidth().padding(20.dp),
                     verticalAlignment = Alignment.CenterVertically
