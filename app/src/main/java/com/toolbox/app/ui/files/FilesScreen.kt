@@ -204,11 +204,11 @@ private fun FilePanel(side: String, path: String, entries: List<FileEntry>, onNa
         }
         Divider(color = MaterialTheme.colorScheme.outlineVariant)
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
-            if (path != "/") item { FileRow("..", true, 0, 0) { onNavigate(File(path).parent ?: "/") } }
+            if (path != "/") item { FileRow("..", true, 0, 0, onClick = { onNavigate(File(path).parent ?: "/") }, onLongClick = {}) }
             items(entries) { entry ->
-                FileRow(entry.name, entry.isDirectory, entry.size, entry.modified) {
-                    if (entry.isDirectory) onNavigate(entry.path) else onClick(entry)
-                } onLongClick = { onLongClick(entry) }
+                FileRow(entry.name, entry.isDirectory, entry.size, entry.modified, onClick = { 
+                    if (entry.isDirectory) onNavigate(entry.path) else onClick(entry) 
+                }, onLongClick = { onLongClick(entry) })
             }
         }
     }
