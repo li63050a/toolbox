@@ -74,7 +74,7 @@ fun HomeScreen(onOpen: (String) -> Unit) {
                     item { NavItem(Icons.Filled.Article, "日志查看", Routes.LOG) { scope.launch { drawerState.close() }; onOpen(Routes.LOG) } }
                     
                     item { Spacer(Modifier.height(8.dp)) }
-                    Divider()
+                    item { Divider() }
                     item { Text("系统", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(16.dp, 8.dp)) }
                     item { NavItem(Icons.Filled.Settings, "设置", Routes.SETTINGS) { scope.launch { drawerState.close() }; onOpen(Routes.SETTINGS) } }
                     item { NavItem(Icons.Filled.Person, "开发者信息", Routes.ABOUT) { scope.launch { drawerState.close() }; onOpen(Routes.ABOUT) } }
