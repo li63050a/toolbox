@@ -486,4 +486,4 @@
     <string name="select_video">Select Video</string>
     <string name="splash_image_selected">Image selected</string>
     <string name="splash_video_selected">Video selected</string>
-</resources>
+<string name="back">Back</string></resources>

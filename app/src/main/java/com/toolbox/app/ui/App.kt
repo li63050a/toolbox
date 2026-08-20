@@ -5,6 +5,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.toolbox.app.data.SettingsRepository
+import com.toolbox.app.ui.about.AboutScreen
 import com.toolbox.app.ui.adb.AdbScreen
 import com.toolbox.app.ui.decibel.DecibelScreen
 import com.toolbox.app.ui.downloader.DownloaderScreen
@@ -28,6 +29,7 @@ object Routes {
     const val SHIZUKU = "shizuku"
     const val LOG = "log"
     const val SETTINGS = "settings"
+    const val ABOUT = "about"
 }
 
 @Composable
@@ -44,5 +46,6 @@ fun App(repo: SettingsRepository) {
         composable(Routes.SHIZUKU) { ShizukuScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.LOG) { LogScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SETTINGS) { SettingsScreen(repo = repo, onBack = { navController.popBackStack() }) }
+        composable(Routes.ABOUT) { AboutScreen(onBack = { navController.popBackStack() }) }
     }
 }

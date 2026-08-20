@@ -486,4 +486,4 @@
     <string name="select_video">选择视频</string>
     <string name="splash_image_selected">已选择图片</string>
     <string name="splash_video_selected">已选择视频</string>
-</resources>
+<string name="back">返回</string></resources>
