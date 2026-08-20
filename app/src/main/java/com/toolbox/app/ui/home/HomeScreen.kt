@@ -1,14 +1,11 @@
 package com.toolbox.app.ui.home
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,72 +48,36 @@ fun HomeScreen(onOpen: (String) -> Unit) {
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
-                // 顶部标题
                 Row(
                     Modifier.fillMaxWidth().padding(20.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Filled.Apps,
-                        contentDescription = null,
-                        modifier = Modifier.size(32.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                    Icon(Icons.Filled.Apps, null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(12.dp))
-                    Text(
-                        "工具箱",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("工具箱", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 }
                 Divider()
 
-                // 功能列表
                 LazyColumn {
-                    item {
-                        Text(
-                            "网络工具",
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.padding(16.dp, 8.dp, 16.dp, 4.dp)
-                        )
-                    }
-                    item { DrawerItem(Icons.Filled.Terminal, "SSH终端", Routes.SSH) { scope.launch { drawerState.close() }; onOpen(Routes.SSH) } }
-                    item { DrawerItem(Icons.Filled.Dns, "VPN代理", Routes.VPN) { scope.launch { drawerState.close() }; onOpen(Routes.VPN) } }
-                    item { DrawerItem(Icons.Filled.Shield, "Shizuku", Routes.SHIZUKU) { scope.launch { drawerState.close() }; onOpen(Routes.SHIZUKU) } }
-                    item { DrawerItem(Icons.Filled.Devices, "ADB管理器", Routes.ADB) { scope.launch { drawerState.close() }; onOpen(Routes.ADB) } }
+                    item { Text("网络工具", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(16.dp, 8.dp)) }
+                    item { NavItem(Icons.Filled.Terminal, "SSH终端", Routes.SSH) { scope.launch { drawerState.close() }; onOpen(Routes.SSH) } }
+                    item { NavItem(Icons.Filled.Dns, "VPN代理", Routes.VPN) { scope.launch { drawerState.close() }; onOpen(Routes.VPN) } }
+                    item { NavItem(Icons.Filled.Shield, "Shizuku", Routes.SHIZUKU) { scope.launch { drawerState.close() }; onOpen(Routes.SHIZUKU) } }
+                    item { NavItem(Icons.Filled.Devices, "ADB管理器", Routes.ADB) { scope.launch { drawerState.close() }; onOpen(Routes.ADB) } }
                     
-                    item {
-                        Text(
-                            "文件工具",
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)
-                        )
-                    }
-                    item { DrawerItem(Icons.Filled.FolderOpen, "文件管理器", Routes.FILES) { scope.launch { drawerState.close() }; onOpen(Routes.FILES) } }
-                    item { DrawerItem(Icons.Filled.Download, "下载器", Routes.DOWNLOAD) { scope.launch { drawerState.close() }; onOpen(Routes.DOWNLOAD) } }
+                    item { Text("文件工具", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(16.dp, 8.dp)) }
+                    item { NavItem(Icons.Filled.FolderOpen, "文件管理器", Routes.FILES) { scope.launch { drawerState.close() }; onOpen(Routes.FILES) } }
+                    item { NavItem(Icons.Filled.Download, "下载器", Routes.DOWNLOAD) { scope.launch { drawerState.close() }; onOpen(Routes.DOWNLOAD) } }
                     
-                    item {
-                        Text(
-                            "其他工具",
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)
-                        )
-                    }
-                    item { DrawerItem(Icons.Filled.GraphicEq, "分贝仪", Routes.DECIBEL) { scope.launch { drawerState.close() }; onOpen(Routes.DECIBEL) } }
-                    item { DrawerItem(Icons.Filled.Article, "日志查看", Routes.LOG) { scope.launch { drawerState.close() }; onOpen(Routes.LOG) } }
+                    item { Text("其他工具", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(16.dp, 8.dp)) }
+                    item { NavItem(Icons.Filled.GraphicEq, "分贝仪", Routes.DECIBEL) { scope.launch { drawerState.close() }; onOpen(Routes.DECIBEL) } }
+                    item { NavItem(Icons.Filled.Article, "日志查看", Routes.LOG) { scope.launch { drawerState.close() }; onOpen(Routes.LOG) } }
                     
-                    item { Spacer(Modifier.height(16.dp)) }
+                    item { Spacer(Modifier.height(8.dp)) }
                     Divider()
-                    
-                    item {
-                        Text(
-                            "系统",
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)
-                        )
-                    }
-                    item { DrawerItem(Icons.Filled.Settings, "设置", Routes.SETTINGS) { scope.launch { drawerState.close() }; onOpen(Routes.SETTINGS) } }
-                    item { DrawerItem(Icons.Filled.Person, "开发者信息", Routes.ABOUT) { scope.launch { drawerState.close() }; onOpen(Routes.ABOUT) } }
+                    item { Text("系统", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(16.dp, 8.dp)) }
+                    item { NavItem(Icons.Filled.Settings, "设置", Routes.SETTINGS) { scope.launch { drawerState.close() }; onOpen(Routes.SETTINGS) } }
+                    item { NavItem(Icons.Filled.Person, "开发者信息", Routes.ABOUT) { scope.launch { drawerState.close() }; onOpen(Routes.ABOUT) } }
                     item { Spacer(Modifier.height(32.dp)) }
                 }
             }
@@ -128,10 +88,8 @@ fun HomeScreen(onOpen: (String) -> Unit) {
                 TopAppBar(
                     title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold) },
                     navigationIcon = {
-                        IconButton(onClick = { 
-                            try { scope.launch { drawerState.open() } } catch (e: Exception) {}
-                        }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "菜单")
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Filled.Menu, "菜单")
                         }
                     }
                 )
@@ -153,20 +111,12 @@ fun HomeScreen(onOpen: (String) -> Unit) {
 }
 
 @Composable
-private fun DrawerItem(icon: ImageVector, label: String, route: String, onClick: () -> Unit) {
+private fun NavItem(icon: ImageVector, label: String, route: String, onClick: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
+        Icon(icon, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(16.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge)
     }
@@ -179,27 +129,15 @@ private fun FeatureCard(feature: Feature, onClick: () -> Unit) {
         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Column(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Surface(
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
-                Icon(
-                    feature.icon,
-                    null,
-                    modifier = Modifier.padding(10.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                Icon(feature.icon, null, modifier = Modifier.padding(10.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Text(stringResource(feature.titleRes), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                stringResource(feature.descRes),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(stringResource(feature.descRes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
