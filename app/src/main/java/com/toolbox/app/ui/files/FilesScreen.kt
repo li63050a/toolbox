@@ -29,34 +29,7 @@ fun FilesScreen(onBack: () -> Unit) {
     var rightPath by remember { mutableStateOf("/storage/emulated/0") }
     var leftEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     var rightEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
-    var drawerOpen by remember { mutableStateOf(false) }
-    var showActionMenu by remember { mutableStateOf(false) }
-    var selectedEntry by remember { mutableStateOf<FileEntry?>(null) }
-    var currentSide by remember { mutableStateOf("left") }
-
-    fun loadEntries(path: String, isLeft: Boolean) {
-        thread {
-            val entries = try {
-                val dir = File(path)
-                if (!dir.exists() || !dir.isDirectory) emptyList()
-                else dir.listFiles()?.filter { it.name != "." && it.name != ".." }
-                    ?.map { f ->
-                        FileEntry(
-                            path = f.absolutePath,
-                            name = f.name,
-                            isDirectory = f.isDirectory,
-                            size = if (f.isFile) f.length() else 0L,
-                            modified = f.lastModified()
-                        )
-                    }
-                    ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
-                    ?: emptyList()
-            } catch (e: Exception) {
-                emptyList()
-            }
-            if (isLeft) leftEntries = entries else rightEntries = entries
-        }.start()
-    }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     LaunchedEffect(leftPath, rightPath) {
         loadEntries(leftPath, true)
@@ -64,8 +37,7 @@ fun FilesScreen(onBack: () -> Unit) {
     }
 
     ModalNavigationDrawer(
-        drawerOpen = drawerOpen,
-        onDrawerDismiss = { drawerOpen = false },
+        drawerState = drawerState,
         drawerContent = {
             Surface(color = MaterialTheme.colorScheme.surface) {
                 Column(Modifier.padding(16.dp)) {
@@ -74,10 +46,10 @@ fun FilesScreen(onBack: () -> Unit) {
                     
                     Text("本地存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
                     StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0") {
-                        leftPath = it; rightPath = it; drawerOpen = false
+                        leftPath = it; rightPath = it; scope.launch { drawerState.close() }
                     }
                     StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download") {
-                        leftPath = it; rightPath = it; drawerOpen = false
+                        leftPath = it; rightPath = it; scope.launch { drawerState.close() }
                     }
                 }
             }
