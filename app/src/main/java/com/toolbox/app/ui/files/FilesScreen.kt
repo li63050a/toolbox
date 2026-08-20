@@ -1,5 +1,15 @@
 package com.toolbox.app.ui.files
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,27 +23,86 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.toolbox.app.R
+import com.toolbox.app.RepositoryProvider
+import com.toolbox.app.data.ConnectionConfig
 import com.toolbox.app.ui.filebrowser.FileEntry
 import java.io.File
 import kotlin.concurrent.thread
 
+sealed interface FsTarget {
+    data object Local : FsTarget
+    data class Ssh(val cfg: ConnectionConfig.Ssh) : FsTarget
+    data class Ftp(val cfg: ConnectionConfig.Ftp) : FsTarget
+
+    fun label(): String = when (this) {
+        is Local -> "本地存储"
+        is Ssh -> "SSH · ${cfg.name.ifEmpty { cfg.host }}"
+        is Ftp -> "FTP · ${cfg.name.ifEmpty { cfg.host }}"
+    }
+    
+    fun icon() = when (this) {
+        is Local -> Icons.Filled.FolderOpen
+        is Ssh -> Icons.Filled.Terminal
+        is Ftp -> Icons.Filled.Folder
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(onBack: () -> Unit) {
-    var leftPath by remember { mutableStateOf("/storage/emulated/0") }
-    var rightPath by remember { mutableStateOf("/storage/emulated/0") }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val repo = RepositoryProvider.connections
+    val all by repo.connections.collectAsState(initial = emptyList())
+    
+    var leftTarget by remember { mutableStateOf<FsTarget>(FsTarget.Local) }
+    var rightTarget by remember { mutableStateOf<FsTarget>(FsTarget.Local) }
+    val defaultPath = Environment.getExternalStorageDirectory().absolutePath
+    var leftPath by remember { mutableStateOf(defaultPath) }
+    var rightPath by remember { mutableStateOf(defaultPath) }
     var leftEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     var rightEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
-    var showDrawer by remember { mutableStateOf(false) }
-    var showActionMenu by remember { mutableStateOf(false) }
+    var leftLoading by remember { mutableStateOf(false) }
+    var rightLoading by remember { mutableStateOf(false) }
     var selectedEntry by remember { mutableStateOf<FileEntry?>(null) }
+    var showActionMenu by remember { mutableStateOf(false) }
+    var showTargetMenu by remember { mutableStateOf<String?>(null) }
 
-    fun loadEntries(path: String, isLeft: Boolean) {
+    val runtimePermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> loadLocalFiles(leftPath, true); loadLocalFiles(rightPath, false) }
+
+    fun hasPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    fun requestPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        } else {
+            runtimePermLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+        }
+    }
+
+    fun loadLocalFiles(path: String, isLeft: Boolean) {
         thread {
             val entries = try {
                 val dir = File(path)
@@ -57,23 +126,128 @@ fun FilesScreen(onBack: () -> Unit) {
         }.start()
     }
 
-    LaunchedEffect(leftPath, rightPath) {
-        loadEntries(leftPath, true)
-        loadEntries(rightPath, false)
-    }
-
-    if (showDrawer) {
-        ModalBottomSheet(onDismissRequest = { showDrawer = false }) {
-            Column(Modifier.padding(16.dp)) {
-                Text("选择存储", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
-                Text("本地存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
-                StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0") { showDrawer = false }
-                StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download") { showDrawer = false }
+    fun refreshFiles(target: FsTarget, path: String, isLeft: Boolean) {
+        when (target) {
+            is FsTarget.Local -> loadLocalFiles(path, isLeft)
+            else -> {
+                if (isLeft) leftLoading = true else rightLoading = true
+                scope.launch {
+                    try {
+                        val entries = when (target) {
+                            is FsTarget.Ssh -> {
+                                SshEngine(target.cfg).connect().getOrNull()?.let { session ->
+                                    SftpFileOps(context, session, target.cfg.name.ifEmpty { target.cfg.host }).list(path).getOrNull()
+                                }
+                            }
+                            is FsTarget.Ftp -> {
+                                FtpClient(target.cfg).connect().getOrNull()?.let { client ->
+                                    FtpFileOps(context, client, target.cfg.name.ifEmpty { target.cfg.host }).list(path).getOrNull()
+                                }
+                            }
+                            else -> null
+                        }
+                        withContext(Dispatchers.Main) {
+                            if (isLeft) { leftEntries = entries ?: emptyList(); leftLoading = false }
+                            else { rightEntries = entries ?: emptyList(); rightLoading = false }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            if (isLeft) leftLoading = false else rightLoading = false
+                        }
+                    }
+                }
             }
         }
     }
 
+    LaunchedEffect(leftTarget, leftPath) { refreshFiles(leftTarget, leftPath, true) }
+    LaunchedEffect(rightTarget, rightPath) { refreshFiles(rightTarget, rightPath, false) }
+
+    // 目标选择菜单
+    if (showTargetMenu != null) {
+        AlertDialog(
+            onDismissRequest = { showTargetMenu = null },
+            title = { Text(if (showTargetMenu == "left") "选择左侧存储" else "选择右侧存储") },
+            text = {
+                Column {
+                    StorageOption(Icons.Filled.FolderOpen, "本地存储", FsTarget.Local) { target ->
+                        if (showTargetMenu == "left") {
+                            leftTarget = target
+                            leftPath = defaultPath
+                        } else {
+                            rightTarget = target
+                            rightPath = defaultPath
+                        }
+                        showTargetMenu = null
+                    }
+                    Divider()
+                    val sshList = all.filterIsInstance<ConnectionConfig.Ssh>()
+                    val ftpList = all.filterIsInstance<ConnectionConfig.Ftp>()
+                    if (sshList.isNotEmpty()) {
+                        Text("SSH/SFTP", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.primary)
+                        sshList.forEach { conn ->
+                            StorageOption(Icons.Filled.Terminal, conn.name.ifEmpty { conn.host }, FsTarget.Ssh(conn)) {
+                                if (showTargetMenu == "left") leftTarget = it else rightTarget = it
+                                showTargetMenu = null
+                            }
+                        }
+                        Divider()
+                    }
+                    if (ftpList.isNotEmpty()) {
+                        Text("FTP", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.primary)
+                        ftpList.forEach { conn ->
+                            StorageOption(Icons.Filled.Folder, conn.name.ifEmpty { conn.host }, FsTarget.Ftp(conn)) {
+                                if (showTargetMenu == "left") leftTarget = it else rightTarget = it
+                                showTargetMenu = null
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTargetMenu = null }) { Text("取消") }
+            }
+        )
+    }
+
+    // 操作菜单
+    if (showActionMenu && selectedEntry != null) {
+        AlertDialog(
+            onDismissRequest = { showActionMenu = false },
+            title = { Text(selectedEntry!!.name) },
+            text = {
+                Column {
+                    Text("类型: ${if (selectedEntry!!.isDirectory) "文件夹" else "文件"}")
+                    if (!selectedEntry!!.isDirectory) Text("大小: ${formatSize(selectedEntry!!.size)}")
+                    Text("路径: ${selectedEntry!!.path}")
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showActionMenu = false }) { Text("关闭") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showActionMenu = false }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            }
+        )
+    }
+
+    // 权限不足提示
+    if (!hasPermission() && (leftTarget is FsTarget.Local || rightTarget is FsTarget.Local)) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Filled.Lock, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(16.dp))
+                Text("需要存储权限", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Text("请授予权限以浏览文件", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = { requestPermission() }) { Text("请求权限") }
+            }
+        }
+        return
+    }
+
+    // 主界面
     Scaffold(
         topBar = {
             TopAppBar(
@@ -84,7 +258,7 @@ fun FilesScreen(onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showDrawer = true }) {
+                    IconButton(onClick = { showTargetMenu = "left" }) {
                         Icon(Icons.Filled.Menu, stringResource(R.string.file_more))
                     }
                 }
@@ -92,59 +266,138 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     ) { padding ->
         Row(Modifier.fillMaxSize().padding(padding)) {
-            FilePanel("左", leftPath, leftEntries) { leftPath = it } { selectedEntry = it } { selectedEntry = it; showActionMenu = true }
+            FilePanel(
+                side = "左",
+                target = leftTarget,
+                path = leftPath,
+                entries = leftEntries,
+                loading = leftLoading,
+                onNavigate = { leftPath = it },
+                onClick = { selectedEntry = it },
+                onLongClick = { selectedEntry = it; showActionMenu = true },
+                onTargetClick = { showTargetMenu = "left" }
+            )
+            
             VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
-            FilePanel("右", rightPath, rightEntries) { rightPath = it } { selectedEntry = it } { selectedEntry = it; showActionMenu = true }
+            
+            FilePanel(
+                side = "右",
+                target = rightTarget,
+                path = rightPath,
+                entries = rightEntries,
+                loading = rightLoading,
+                onNavigate = { rightPath = it },
+                onClick = { selectedEntry = it },
+                onLongClick = { selectedEntry = it; showActionMenu = true },
+                onTargetClick = { showTargetMenu = "right" }
+            )
         }
-    }
-
-    if (showActionMenu && selectedEntry != null) {
-        AlertDialog(
-            onDismissRequest = { showActionMenu = false },
-            title = { Text("文件操作") },
-            text = {
-                Column {
-                    Text("文件名: ${selectedEntry!!.name}")
-                    Text("类型: ${if (selectedEntry!!.isDirectory) "文件夹" else "文件"}")
-                    if (!selectedEntry!!.isDirectory) Text("大小: ${formatSize(selectedEntry!!.size)}")
-                    Text("路径: ${selectedEntry!!.path}")
-                }
-            },
-            confirmButton = { Button(onClick = { showActionMenu = false }) { Text("关闭") } },
-            dismissButton = { TextButton(onClick = { showActionMenu = false }) { Text("删除") } }
-        )
     }
 }
 
 @Composable
-private fun FilePanel(side: String, path: String, entries: List<FileEntry>, onNavigate: (String) -> Unit, onClick: (FileEntry) -> Unit, onLongClick: (FileEntry) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.FolderOpen, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(6.dp))
-            Text("$side 面板", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(6.dp))
-            Text(path, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun FilePanel(
+    side: String,
+    target: FsTarget,
+    path: String,
+    entries: List<FileEntry>,
+    loading: Boolean,
+    onNavigate: (String) -> Unit,
+    onClick: (FileEntry) -> Unit,
+    onLongClick: (FileEntry) -> Unit,
+    onTargetClick: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxHeight()) {
+        // 路径栏
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onTargetClick) {
+                Icon(
+                    target.icon(),
+                    null,
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    target.label(),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    path,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             IconButton(onClick = { onNavigate(File(path).parent ?: "/") }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
             }
         }
         Divider(color = MaterialTheme.colorScheme.outlineVariant)
-        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
-            if (path != "/") item { FileRow("..", true, 0, 0) { onNavigate(File(path).parent ?: "/") } }
-            items(entries) { entry ->
-                FileRow(entry.name, entry.isDirectory, entry.size, entry.modified) {
-                    if (entry.isDirectory) onNavigate(entry.path) else onClick(entry)
-                } onLongClick = { onLongClick(entry) }
+        
+        if (loading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (entries.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("空目录", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(vertical = 4.dp)
+            ) {
+                if (path != "/") {
+                    item {
+                        FileRow(name = "..", isDirectory = true, size = 0, modified = 0) {
+                            onNavigate(File(path).parent ?: "/")
+                        }
+                    }
+                }
+                items(entries) { entry ->
+                    FileRow(
+                        name = entry.name,
+                        isDirectory = entry.isDirectory,
+                        size = entry.size,
+                        modified = entry.modified,
+                        onClick = { 
+                            if (entry.isDirectory) onNavigate(entry.path) else onClick(entry)
+                        },
+                        onLongClick = { onLongClick(entry) }
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun FileRow(name: String, isDirectory: Boolean, size: Long, modified: Long, onClick: () -> Unit, onLongClick: () -> Unit = {}) {
+private fun FileRow(
+    name: String,
+    isDirectory: Boolean,
+    size: Long,
+    modified: Long,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .longClickable(onClick = onLongClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = MaterialTheme.shapes.medium
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -153,23 +406,42 @@ private fun FileRow(name: String, isDirectory: Boolean, size: Long, modified: Lo
             tint = if (isDirectory) Color(0xFFFFA000) else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(28.dp)
         )
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-            Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (!isDirectory) Text(formatSize(size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        
+        Column(
+            modifier = Modifier.fillMaxWidth(0.7f).padding(horizontal = 10.dp)
+        ) {
+            Text(
+                name,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!isDirectory) {
+                Text(
+                    formatSize(size),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
-        if (isDirectory) Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(18.dp), tint = Color.Gray.copy(alpha = 0.6f))
+        
+        if (isDirectory) {
+            Icon(Icons.Filled.ChevronRight, null, modifier = Modifier.size(18.dp), tint = Color.Gray.copy(alpha = 0.6f))
+        }
     }
-    Divider(color = Color.LightGray.copy(alpha = 0.2f), thickness = 0.5.dp)
 }
 
 private fun getFileIcon(name: String) = when {
-    name.endsWith(".mp3", true) || name.endsWith(".wav", true) -> Icons.Filled.MusicNote
-    name.endsWith(".mp4", true) || name.endsWith(".avi", true) -> Icons.Filled.VideoLibrary
-    name.endsWith(".jpg", true) || name.endsWith(".png", true) -> Icons.Filled.Image
+    name.endsWith(".mp3", true) || name.endsWith(".wav", true) || name.endsWith(".flac", true) -> Icons.Filled.MusicNote
+    name.endsWith(".mp4", true) || name.endsWith(".avi", true) || name.endsWith(".mkv", true) -> Icons.Filled.VideoLibrary
+    name.endsWith(".jpg", true) || name.endsWith(".png", true) || name.endsWith(".gif", true) -> Icons.Filled.Image
     name.endsWith(".pdf", true) -> Icons.Filled.PictureAsPdf
-    name.endsWith(".zip", true) || name.endsWith(".rar", true) -> Icons.Filled.Compress
+    name.endsWith(".zip", true) || name.endsWith(".rar", true) || name.endsWith(".7z", true) -> Icons.Filled.Compress
     name.endsWith(".txt", true) || name.endsWith(".md", true) -> Icons.Filled.Description
     name.endsWith(".apk", true) -> Icons.Filled.Android
+    name.endsWith(".doc", true) || name.endsWith(".docx", true) -> Icons.Filled.Description
+    name.endsWith(".xls", true) || name.endsWith(".xlsx", true) -> Icons.Filled.TableChart
+    name.endsWith(".ppt", true) || name.endsWith(".pptx", true) -> Icons.Filled.Slide
     else -> Icons.AutoMirrored.Filled.InsertDriveFile
 }
 
@@ -181,8 +453,14 @@ private fun formatSize(size: Long): String = when {
 }
 
 @Composable
-private fun StorageItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, path: String, onClick: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun StorageOption(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, target: FsTarget, onClick: (FsTarget) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick(target) }
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Icon(icon, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(12.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge)
