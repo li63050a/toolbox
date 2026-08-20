@@ -1,14 +1,5 @@
 package com.toolbox.app.ui.files
 
-import android.Manifest
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,32 +13,26 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.toolbox.app.R
 import com.toolbox.app.ui.filebrowser.FileEntry
-import com.toolbox.app.ui.filebrowser.FileOps
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlin.concurrent.thread
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var leftPath by remember { mutableStateOf("/storage/emulated/0") }
     var rightPath by remember { mutableStateOf("/storage/emulated/0") }
     var leftEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     var rightEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
-    var selectedEntry by remember { mutableStateOf<FileEntry?>(null) }
-    var showMenu by remember { mutableStateOf(false) }
+    var drawerOpen by remember { mutableStateOf(false) }
     var showActionMenu by remember { mutableStateOf(false) }
+    var selectedEntry by remember { mutableStateOf<FileEntry?>(null) }
+    var currentSide by remember { mutableStateOf("left") }
 
     fun loadEntries(path: String, isLeft: Boolean) {
         thread {
@@ -79,23 +64,20 @@ fun FilesScreen(onBack: () -> Unit) {
     }
 
     ModalNavigationDrawer(
-        drawerState = rememberDrawerState(initialValue = DrawerValue.Closed),
+        drawerOpen = drawerOpen,
+        onDrawerDismiss = { drawerOpen = false },
         drawerContent = {
-            ModalDrawerSheet {
+            Surface(color = MaterialTheme.colorScheme.surface) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("文件管理器", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("选择存储", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
                     
-                    Text("左侧存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
-                    StorageOption("本地存储", Icons.Filled.FolderOpen) {
-                        leftPath = "/storage/emulated/0"
-                        scope.launch { drawerState.close() }
+                    Text("本地存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
+                    StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0") {
+                        leftPath = it; rightPath = it; drawerOpen = false
                     }
-                    
-                    Text("右侧存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp, horizontal = 16.dp))
-                    StorageOption("本地存储", Icons.Filled.FolderOpen) {
-                        rightPath = "/storage/emulated/0"
-                        scope.launch { drawerState.close() }
+                    StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download") {
+                        leftPath = it; rightPath = it; drawerOpen = false
                     }
                 }
             }
@@ -111,7 +93,7 @@ fun FilesScreen(onBack: () -> Unit) {
                         }
                     },
                     actions = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        IconButton(onClick = { drawerOpen = true }) {
                             Icon(Icons.Filled.Menu, stringResource(R.string.file_more))
                         }
                     }
@@ -125,10 +107,7 @@ fun FilesScreen(onBack: () -> Unit) {
                     entries = leftEntries,
                     onNavigate = { leftPath = it },
                     onClick = { selectedEntry = it },
-                    onLongClick = {
-                        selectedEntry = it
-                        showActionMenu = true
-                    }
+                    onLongClick = { selectedEntry = it; showActionMenu = true; currentSide = "left" }
                 )
                 VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
                 FilePanel(
@@ -137,10 +116,7 @@ fun FilesScreen(onBack: () -> Unit) {
                     entries = rightEntries,
                     onNavigate = { rightPath = it },
                     onClick = { selectedEntry = it },
-                    onLongClick = {
-                        selectedEntry = it
-                        showActionMenu = true
-                    }
+                    onLongClick = { selectedEntry = it; showActionMenu = true; currentSide = "right" }
                 )
             }
         }
@@ -149,9 +125,10 @@ fun FilesScreen(onBack: () -> Unit) {
     if (showActionMenu && selectedEntry != null) {
         AlertDialog(
             onDismissRequest = { showActionMenu = false },
-            title = { Text(selectedEntry!!.name) },
+            title = { Text("文件操作") },
             text = {
                 Column {
+                    Text("文件名: ${selectedEntry!!.name}")
                     Text("类型: ${if (selectedEntry!!.isDirectory) "文件夹" else "文件"}")
                     if (!selectedEntry!!.isDirectory) {
                         Text("大小: ${formatSize(selectedEntry!!.size)}")
@@ -179,7 +156,6 @@ private fun FilePanel(
     onLongClick: (FileEntry) -> Unit
 ) {
     Column(modifier = Modifier.weight(1f).fillMaxSize()) {
-        // 路径栏
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -212,7 +188,6 @@ private fun FilePanel(
         }
         Divider(color = MaterialTheme.colorScheme.outlineVariant)
         
-        // 文件列表
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = 4.dp)
@@ -257,7 +232,6 @@ private fun FileRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .longClickable { onLongClick() }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -279,7 +253,7 @@ private fun FileRow(
             )
             if (!isDirectory) {
                 Text(
-                    "${formatSize(size)}",
+                    formatSize(size),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -312,11 +286,11 @@ private fun formatSize(size: Long): String = when {
 }
 
 @Composable
-private fun StorageOption(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun StorageItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, path: String, onClick: (String) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable { onClick(path) }
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
