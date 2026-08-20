@@ -2,10 +2,14 @@ package com.toolbox.app.easytier.ui
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -17,238 +21,386 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.easytier.jni.EasyTierJNI
 import com.easytier.jni.EasyTierVpnService
+import com.toolbox.app.easytier.ConfigRepository
 import com.toolbox.app.easytier.EasyTierConfig
-import com.toolbox.app.easytier.EasyTierManager
+import com.toolbox.app.easytier.DetailedNetworkInfo
+import com.toolbox.app.easytier.MyNodeInfo
 import com.toolbox.app.easytier.NetworkSnapshot
 import com.toolbox.app.easytier.PeerInfo
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EasyTierScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val mgr = remember { EasyTierManager(context) }
-    val snackbar = remember { SnackbarHostState() }
-
-    var config by remember { mutableStateOf(mgr.loadConfig()) }
-    var status by remember { mutableStateOf<NetworkSnapshot?>(null) }
-    var isRunning by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
-    var activeTab by remember { mutableStateOf(0) }
+    val repo = remember { ConfigRepository(context) }
+    var allConfigs by remember { mutableStateOf(repo.configs) }
+    var activeConfigId by remember { mutableStateOf<String?>(repo.activeId) }
+    var showConfigEditor by remember { mutableStateOf(false) }
+    var editingConfig by remember { mutableStateOf<EasyTierConfig?>(null) }
+    var showAddConfig by remember { mutableStateOf(false) }
     var vpnAuthorized by remember { mutableStateOf(false) }
 
-    val vpnLauncher = rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
-    ) {
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         vpnAuthorized = true
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let {
+            scope.launch {
+                val content = context.contentResolver.openInputStream(it)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: return@launch
+                val config = repo.importConfig(content, "导入配置")
+                showAddConfig = false
+                repo.addConfig(config)
+                allConfigs = repo.configs
+                repo.saveActiveConfig(config.id)
+                activeConfigId = config.id
+            }
+        }
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri: Uri? ->
+        uri?.let {
+            scope.launch {
+                val cfg = allConfigs.firstOrNull { it.id == activeConfigId } ?: allConfigs.firstOrNull() ?: EasyTierConfig.defaultConfig()
+                val toml = cfg.toToml()
+                context.contentResolver.openOutputStream(it)?.use { out ->
+                    out.write(toml.toByteArray(Charsets.UTF_8))
+                }
+                snackbarHostState.showSnackbar("已导出: ${cfg.name}")
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
         vpnAuthorized = android.net.VpnService.prepare(context) == null
-        scope.launch {
-            val snap = mgr.getStatus()
-            status = snap
-            isRunning = snap.isRunning
-        }
+        repo.reload()
+        allConfigs = repo.configs
+        activeConfigId = repo.activeId
     }
+
+    val activeConfig = allConfigs.firstOrNull { it.id == activeConfigId } ?: allConfigs.firstOrNull() ?: EasyTierConfig.defaultConfig()
+
+    var status by remember { mutableStateOf<NetworkSnapshot?>(null) }
+    var isRunning by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+    var snackbarMsg by remember { mutableStateOf<String?>(null) }
+    var eventLog by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showSettings by remember { mutableStateOf(false) }
+    var activeTab by remember { mutableStateOf(0) }
 
     LaunchedEffect(isRunning) {
         if (isRunning) {
             while (isRunning) {
                 withContext(Dispatchers.IO) {
-                    val snap = mgr.getStatus()
-                    status = snap
+                    status = mgrGetStatus(activeConfig)
                 }
                 kotlinx.coroutines.delay(3000)
             }
         }
     }
 
-    fun start() {
+    fun showSnack(msg: String) { scope.launch { snackbarMsg = msg } }
+
+    fun startConfig(cfg: EasyTierConfig) {
         if (!vpnAuthorized) {
             val intent = android.net.VpnService.prepare(context)
-            if (intent != null) {
-                vpnLauncher.launch(intent)
-            } else {
-                vpnAuthorized = true
-                scope.launch {
-                    loading = true
-                    val result = mgr.start(config)
-                    result.fold(
-                        onSuccess = {
-                            isRunning = true
-                            loading = false
-                            val vpnIntent = Intent(context, EasyTierVpnService::class.java).apply {
-                                putExtra(EasyTierVpnService.EXTRA_INSTANCE_NAME, config.instanceName)
-                                putExtra(EasyTierVpnService.EXTRA_IPV4_ADDRESS, if (config.dhcp) "10.64.0.1/24" else "${config.virtualIpv4.split('/')[0]}/24")
-                            }
-                            context.startForegroundService(vpnIntent)
-                        },
-                        onFailure = {
-                            scope.launch { snackbar.showSnackbar(result.exceptionOrNull()?.message ?: "启动失败") }
-                            loading = false
-                        }
-                    )
-                }
-            }
-            return
+            if (intent != null) { vpnLauncher.launch(intent); return }
+            vpnAuthorized = true
         }
         scope.launch {
             loading = true
-            val result = mgr.start(config)
-            result.fold(
-                onSuccess = {
-                    isRunning = true
-                    loading = false
-                    val vpnIntent = Intent(context, EasyTierVpnService::class.java).apply {
-                        putExtra(EasyTierVpnService.EXTRA_INSTANCE_NAME, config.instanceName)
-                        putExtra(EasyTierVpnService.EXTRA_IPV4_ADDRESS, if (config.dhcp) "10.64.0.1/24" else "${config.virtualIpv4.split('/')[0]}/24")
-                    }
-                    context.startForegroundService(vpnIntent)
-                },
-                onFailure = {
-                    scope.launch { snackbar.showSnackbar(result.exceptionOrNull()?.message ?: "启动失败") }
-                    loading = false
+            val toml = cfg.toToml()
+            val result = withContext(Dispatchers.IO) { runCatching { EasyTierJNI.runNetworkInstance(toml) } }
+            if (result.isSuccess && result.getOrNull() == 0) {
+                isRunning = true
+                loading = false
+                val ipv4 = if (cfg.dhcp) "10.64.0.1/24" else "${cfg.virtualIpv4.split('/')[0]}/24"
+                val vpnIntent = Intent(context, EasyTierVpnService::class.java).apply {
+                    putExtra(EasyTierVpnService.EXTRA_INSTANCE_NAME, cfg.instanceName)
+                    putExtra(EasyTierVpnService.EXTRA_IPV4_ADDRESS, ipv4)
                 }
-            )
+                context.startForegroundService(vpnIntent)
+                showSnack("启动成功")
+            } else {
+                showSnack("启动失败: ${result.exceptionOrNull()?.message}")
+                loading = false
+            }
         }
     }
 
-    fun stop() {
+    fun stopConfig() {
         scope.launch {
-            mgr.stop()
+            withContext(Dispatchers.IO) { EasyTierJNI.stopAllInstances() }
+            context.stopService(Intent(context, EasyTierVpnService::class.java))
             isRunning = false
-            status = mgr.getStatus()
-            val vpnIntent = Intent(context, EasyTierVpnService::class.java).apply {
-                action = EasyTierVpnService.ACTION_STOP
-            }
-            context.stopService(vpnIntent)
+            status = mgrGetStatus(activeConfig)
+            showSnack("已停止")
         }
+    }
+
+    fun switchConfig(cfg: EasyTierConfig) {
+        if (isRunning) {
+            scope.launch { stopConfig() }
+            isRunning = false
+        }
+        activeConfigId = cfg.id
+        scope.launch { repo.saveActiveConfig(cfg.id) }
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("EasyTier 组网", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
-                    }
-                },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
                 actions = {
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Filled.Settings, null)
-                    }
+                    IconButton(onClick = { showSettings = true }) { Icon(Icons.Filled.Settings, null) }
                 }
             )
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            // 配置选择栏
+            ConfigurationBar(
+                configs = allConfigs, activeId = activeConfigId,
+                onSwitch = { switchConfig(it) },
+                onAdd = { showAddConfig = true },
+                onEdit = { editingConfig = it; showConfigEditor = true },
+                onDelete = { id -> scope.launch { repo.deleteConfig(id) } }
+            )
+
             TabRow(selectedTabIndex = activeTab) {
-                Tab(selected = activeTab == 0, onClick = { activeTab = 0 }, text = { Text("状态") })
-                Tab(selected = activeTab == 1, onClick = { activeTab = 1 }, text = { Text("配置") })
+                Tab(selected = activeTab == 0, onClick = { activeTab = 0 }, text = { Text("控制") })
+                Tab(selected = activeTab == 1, onClick = { activeTab = 1 }, text = { Text("状态") })
+                Tab(selected = activeTab == 2, onClick = { activeTab = 2 }, text = { Text("日志") })
             }
+
             when (activeTab) {
-                0 -> StatusTab(status, isRunning, mgr, scope, snackbar, ::start, ::stop, loading)
-                1 -> ConfigTab(config, onChange = { config = it }, onSave = { mgr.saveConfig(config); scope.launch { snackbar.showSnackbar("已保存") } })
+                0 -> ControlTabContent(
+                    config = activeConfig, isRunning = isRunning, loading = loading,
+                    onStart = { startConfig(activeConfig) }, onStop = ::stopConfig,
+                    onEdit = { editingConfig = activeConfig; showConfigEditor = true }
+                )
+                1 -> StatusTabContent(status = status, isRunning = isRunning, onRefresh = {
+                    scope.launch {
+                        status = mgrGetStatus(activeConfig)
+                    }
+                })
+                2 -> LogTabContent(events = eventLog, onClear = { eventLog = emptyList() })
             }
         }
     }
 
+    if (showConfigEditor) {
+        ConfigEditorDialog(
+            config = editingConfig ?: EasyTierConfig.defaultConfig(),
+            onDismiss = { showConfigEditor = false },
+            onSave = { c ->
+                scope.launch {
+                    val list = allConfigs.toMutableList()
+                    val idx = list.indexOfFirst { it.id == c.id }
+                    if (idx >= 0) list[idx] = c else list.add(c)
+                    repo.updateConfig(c)
+                    if (activeConfigId == c.id) activeConfigId = c.id
+                    showConfigEditor = false
+                }
+            }
+        )
+    }
+
+    if (showAddConfig) {
+        AlertDialog(
+            onDismissRequest = { showAddConfig = false },
+            title = { Text("新建配置") },
+            text = { OutlinedTextField(value = "", onValueChange = {}, label = { Text("名称") }) },
+            confirmButton = {
+                Button(onClick = {
+                    val new = EasyTierConfig(name = "配置${allConfigs.size + 1}")
+                    scope.launch {
+                        repo.addConfig(new)
+                        allConfigs = repo.configs
+                        repo.saveActiveConfig(new.id)
+                        activeConfigId = new.id
+                    }
+                    showAddConfig = false
+                    editingConfig = new
+                    showConfigEditor = true
+                }) { Text("创建") }
+            },
+            dismissButton = { TextButton(onClick = { showAddConfig = false }) { Text("取消") } }
+        )
+    }
+
     if (showSettings) {
-        SettingsDialog(config, { showSettings = false }, { c -> config = c; mgr.saveConfig(c) })
+        SettingsDialog(
+            onDismiss = { showSettings = false },
+            onImport = { importLauncher.launch("text/plain") },
+            onExport = { cfg -> exportLauncher.launch("easytier_${cfg.name}.toml") }
+        )
+    }
+}
+
+// ─────────────── 配置选择栏 ───────────────
+@Composable
+private fun ConfigurationBar(
+    configs: List<EasyTierConfig>, activeId: String?,
+    onSwitch: (EasyTierConfig) -> Unit,
+    onAdd: () -> Unit,
+    onEdit: (EasyTierConfig) -> Unit,
+    onDelete: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box {
+            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                val active = configs.firstOrNull { it.id == activeId } ?: configs.firstOrNull() ?: return@OutlinedButton
+                Icon(Icons.Filled.NetworkCheck, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(active.name, maxLines = 1)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                configs.forEach { cfg ->
+                    DropdownMenuItem(
+                        text = { Text(cfg.name + if (cfg.id == activeId) " ✓" else "") },
+                        onClick = { onSwitch(cfg); expanded = false }
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("新建配置", color = MaterialTheme.colorScheme.primary) },
+                    onClick = { onAdd(); expanded = false }
+                )
+            }
+        }
+        Spacer(Modifier.width(4.dp))
+        val active = configs.firstOrNull { it.id == activeId } ?: configs.firstOrNull() ?: return@Row
+        IconButton(onClick = { onEdit(active) }) { Icon(Icons.Filled.Edit, null) }
+        if (configs.size > 1) {
+            IconButton(onClick = { onDelete(active.id) }) { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) }
+        }
+    }
+}
+
+// ─────────────── 控制页 ───────────────
+@Composable
+private fun ControlTabContent(
+    config: EasyTierConfig, isRunning: Boolean, loading: Boolean,
+    onStart: () -> Unit, onStop: () -> Unit,
+    onEdit: () -> Unit
+) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(modifier = Modifier.size(12.dp), shape = CircleShape,
+                        color = if (isRunning) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error) {}
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isRunning) "运行中" else "已停止",
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    InfoRow("实例名", config.instanceName)
+                    InfoRow("网络名", config.networkName.ifEmpty { "(未设置)" })
+                    InfoRow("对等节点", config.peers.lines().firstOrNull { it.isNotBlank() }?.substringAfterLast("/") ?: "public.easytier.top")
+                    InfoRow("DHCP", if (config.dhcp) "自动" else "手动 ${config.virtualIpv4}")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (isRunning) {
+                        Button(onClick = onStop, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                            Icon(Icons.Filled.Stop, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("停止")
+                        }
+                    } else {
+                        Button(onClick = onStart, enabled = !loading, modifier = Modifier.weight(1f)) {
+                            if (loading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            else { Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)) }
+                            Text(if (loading) "启动中..." else "启动")
+                        }
+                    }
+                    OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Filled.Edit, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("编辑")
+                    }
+                }
+            }
+        }
+
+        // TOML 预览
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text("TOML 配置预览", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                val toml by remember(config) { derivedStateOf { config.toToml() } }
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth()) {
+                    Text(toml, modifier = Modifier.padding(8.dp),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun StatusTab(
-    status: NetworkSnapshot?,
-    isRunning: Boolean,
-    mgr: EasyTierManager,
-    scope: CoroutineScope,
-    snackbar: SnackbarHostState,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-    loading: Boolean,
-    ctx: android.content.Context = LocalContext.current
-) {
-    val peers = status?.peers ?: emptyList()
-    val myNode = status?.myNode
+private fun InfoRow(label: String, value: String) {
+    Row { Text("$label: ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(value, style = MaterialTheme.typography.bodySmall) }
+}
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isRunning) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.errorContainer
-            )
-        ) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+// ─────────────── 状态页 ───────────────
+@Composable
+private fun StatusTabContent(status: NetworkSnapshot?, isRunning: Boolean, onRefresh: () -> Unit) {
+    val detailed = status?.detailed
+    val myNode = detailed?.myNode
+    val peers = detailed?.peers ?: emptyList()
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // 状态卡片
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        modifier = Modifier.size(12.dp),
-                        shape = CircleShape,
-                        color = if (isRunning) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
-                    ) {}
+                    Surface(modifier = Modifier.size(12.dp), shape = CircleShape,
+                        color = if (isRunning) Color(0xFF4CAF50) else MaterialTheme.colorScheme.outline) {}
                     Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (isRunning) "运行中" else "已停止",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text(if (isRunning) "已连接" else "未连接", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
                 if (myNode != null) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        StatusRow("主机名", myNode.hostname)
-                        StatusRow("虚拟 IP", myNode.virtualIp)
-                        StatusRow("版本", myNode.version)
-                    }
+                    InfoRow("主机名", myNode.hostname)
+                    InfoRow("虚拟 IP", myNode.virtualIp)
+                    InfoRow("版本", myNode.version)
+                } else {
+                    Text("暂无节点信息", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (status?.error != null) {
-                    Text(status.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                if (detailed?.error != null) {
+                    Text("错误: ${detailed.error}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (isRunning) {
-                        Button(onClick = { onStop() }, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Filled.Stop, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("停止")
-                        }
-                    } else {
-                        Button(
-                            onClick = { onStart() },
-                            enabled = !loading,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            if (loading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            else {
-                                Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                            }
-                            Text(if (loading) "启动中..." else "启动")
-                        }
+                Row {
+                    OutlinedButton(onClick = onRefresh, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("刷新")
                     }
                 }
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
+        // 对端节点
+        Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.People, null, tint = MaterialTheme.colorScheme.primary)
@@ -257,7 +409,7 @@ private fun StatusTab(
                 }
                 Spacer(Modifier.height(8.dp))
                 if (peers.isEmpty()) {
-                    Text("暂无对端节点", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("暂无对端节点，请确保对方也在线", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(peers) { peer -> PeerRow(peer) }
@@ -265,268 +417,168 @@ private fun StatusTab(
                 }
             }
         }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = {
-                    val info = status?.myNode?.virtualIp ?: "无IP"
-                    val clip = android.content.ClipData.newPlainText("EasyTier IP", info)
-                    (ctx.getSystemService(Activity.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(clip)
-                    scope.launch { snackbar.showSnackbar("IP 已复制: $info") }
-                },
-                modifier = Modifier.weight(1f)
-            ) { Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("复制IP") }
-            OutlinedButton(
-                onClick = { scope.launch { snackbar.showSnackbar("配置请通过设置保存后重新启动") } },
-                modifier = Modifier.weight(1f)
-            ) { Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("刷新") }
-        }
     }
 }
 
 @Composable
 private fun PeerRow(peer: PeerInfo) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Surface(
-            modifier = Modifier.size(8.dp),
-            shape = CircleShape,
-            color = if (peer.isDirect) Color(0xFF4CAF50) else Color(0xFFFFA000)
-        ) {}
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Surface(modifier = Modifier.size(8.dp), shape = CircleShape,
+            color = if (peer.isDirect) Color(0xFF4CAF50) else Color(0xFFFFA000)) {}
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(peer.hostname, style = MaterialTheme.typography.bodyMedium)
             Text(peer.virtualIp, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Column(horizontalAlignment = Alignment.End) {
-            if (peer.latency.isNotBlank()) Text(peer.latency, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (peer.natType.isNotBlank() && peer.natType != "未知") Text(peer.natType, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (peer.latency.isNotBlank()) Text(peer.latency, style = MaterialTheme.typography.labelSmall)
+            if (peer.traffic.isNotBlank()) Text(peer.traffic, style = MaterialTheme.typography.labelSmall)
         }
     }
 }
 
+// ─────────────── 日志页 ───────────────
 @Composable
-private fun StatusRow(label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("$label: ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+private fun LogTabContent(events: List<String>, onClear: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("运行日志", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            if (events.isNotEmpty()) OutlinedButton(onClick = onClear) { Text("清空") }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (events.isEmpty()) {
+            Text("暂无日志", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxSize(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        } else {
+            val listState = rememberLazyListState()
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                items(events.reversed()) { event ->
+                    Text(event, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        modifier = Modifier.padding(vertical = 2.dp, horizontal = 4.dp))
+                }
+            }
+        }
     }
 }
 
+// ─────────────── 配置编辑器 ───────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ConfigTab(config: EasyTierConfig, onChange: (EasyTierConfig) -> Unit, onSave: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("基本信息", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                OutlinedTextField(
-                    value = config.instanceName,
-                    onValueChange = { onChange(config.copy(instanceName = it)) },
-                    label = { Text("实例名称") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = config.networkName,
-                    onValueChange = { onChange(config.copy(networkName = it)) },
-                    label = { Text("网络名称") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = config.networkSecret,
-                    onValueChange = { onChange(config.copy(networkSecret = it)) },
-                    label = { Text("网络密钥") },
-                    modifier = Modifier.fillMaxWidth(),
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
-                )
-                OutlinedTextField(
-                    value = config.peers,
-                    onValueChange = { onChange(config.copy(peers = it)) },
-                    label = { Text("对等节点（每行一个）") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                )
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("网络设置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = config.dhcp, onCheckedChange = { onChange(config.copy(dhcp = it)) })
-                    Spacer(Modifier.width(8.dp))
-                    Text("自动分配IP (DHCP)")
-                }
-                if (!config.dhcp) {
-                    OutlinedTextField(
-                        value = config.virtualIpv4,
-                        onValueChange = { onChange(config.copy(virtualIpv4 = it)) },
-                        label = { Text("虚拟IPv4") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                OutlinedTextField(
-                    value = config.listenerUrls,
-                    onValueChange = { onChange(config.copy(listenerUrls = it)) },
-                    label = { Text("监听地址（每行一个）") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                )
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("高级选项", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = config.acceptDns, onCheckedChange = { onChange(config.copy(acceptDns = it)) })
-                    Spacer(Modifier.width(8.dp))
-                    Text("魔法DNS（hostname.et访问）")
-                }
-                if (config.acceptDns) {
-                    OutlinedTextField(
-                        value = config.tldDnsZone,
-                        onValueChange = { onChange(config.copy(tldDnsZone = it)) },
-                        label = { Text("TLD 域名后缀（如 et）") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = config.disableP2p, onCheckedChange = { onChange(config.copy(disableP2p = it)) })
-                    Spacer(Modifier.width(8.dp))
-                    Text("禁用P2P（仅中转）")
-                }
-                OutlinedTextField(
-                    value = config.relayNetworkWhitelist,
-                    onValueChange = { onChange(config.copy(relayNetworkWhitelist = it)) },
-                    label = { Text("中转网络白名单（空=全转发）") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = config.hostname,
-                    onValueChange = { onChange(config.copy(hostname = it)) },
-                    label = { Text("主机名（留空=系统主机名）") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("TOML 配置预览", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                val toml by remember(config) { derivedStateOf { config.toToml() } }
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        toml,
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                    )
-                }
-            }
-        }
-
-        Button(
-            onClick = { onSave() },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-        ) {
-            Icon(Icons.Filled.Save, null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("保存配置")
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SettingsDialog(
-    config: EasyTierConfig,
-    onDismiss: () -> Unit,
-    onSave: (EasyTierConfig) -> Unit
-) {
+private fun ConfigEditorDialog(config: EasyTierConfig, onDismiss: () -> Unit, onSave: (EasyTierConfig) -> Unit) {
     var c by remember { mutableStateOf(config) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("更多设置") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = c.instanceName, onValueChange = { c = c.copy(instanceName = it) },
-                    label = { Text("实例名称") }, modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = c.networkName, onValueChange = { c = c.copy(networkName = it) },
-                    label = { Text("网络名称") }, modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = c.networkSecret, onValueChange = { c = c.copy(networkSecret = it) },
-                    label = { Text("网络密钥") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = c.peers, onValueChange = { c = c.copy(peers = it) },
-                    label = { Text("对等节点（每行一个）") }, minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = c.dhcp, onCheckedChange = { c = c.copy(dhcp = it) })
-                    Spacer(Modifier.width(8.dp)); Text("自动分配IP")
-                }
-                if (!c.dhcp) {
-                    OutlinedTextField(
-                        value = c.virtualIpv4, onValueChange = { c = c.copy(virtualIpv4 = it) },
-                        label = { Text("虚拟IPv4") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                OutlinedTextField(
-                    value = c.listenerUrls, onValueChange = { c = c.copy(listenerUrls = it) },
-                    label = { Text("监听地址") }, minLines = 2,
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                )
-                Divider()
-                Text("加密与传输", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = c.acceptDns, onCheckedChange = { c = c.copy(acceptDns = it) })
-                    Spacer(Modifier.width(8.dp)); Text("魔法DNS")
-                }
-                if (c.acceptDns) {
-                    OutlinedTextField(
-                        value = c.tldDnsZone, onValueChange = { c = c.copy(tldDnsZone = it) },
-                        label = { Text("TLD后缀") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = c.disableP2p, onCheckedChange = { c = c.copy(disableP2p = it) })
-                    Spacer(Modifier.width(8.dp)); Text("禁用P2P（纯中转）")
-                }
-                OutlinedTextField(
-                    value = c.relayNetworkWhitelist, onValueChange = { c = c.copy(relayNetworkWhitelist = it) },
-                    label = { Text("中转白名单（* = 全转发）") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = c.hostname, onValueChange = { c = c.copy(hostname = it) },
-                    label = { Text("主机名") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                )
+    var expandedSection by remember { mutableStateOf("basic") }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("编辑配置") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(value = c.name, onValueChange = { c = c.copy(name = it) }, label = { Text("配置名称") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = c.instanceName, onValueChange = { c = c.copy(instanceName = it) }, label = { Text("实例名称") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = c.networkName, onValueChange = { c = c.copy(networkName = it) }, label = { Text("网络名称") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = c.networkSecret, onValueChange = { c = c.copy(networkSecret = it) }, label = { Text("网络密钥") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = c.peers, onValueChange = { c = c.copy(peers = it) }, label = { Text("对等节点（每行一个）") }, minLines = 2, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.fillMaxWidth())
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = c.dhcp, onCheckedChange = { c = c.copy(dhcp = it) })
+                Spacer(Modifier.width(8.dp)); Text("DHCP 自动分配 IP")
             }
-        },
-        confirmButton = {
-            Button(onClick = { onSave(c); onDismiss() }) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            if (!c.dhcp) {
+                OutlinedTextField(value = c.virtualIpv4, onValueChange = { c = c.copy(virtualIpv4 = it) }, label = { Text("虚拟IPv4") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+            OutlinedTextField(value = c.listenerUrls, onValueChange = { c = c.copy(listenerUrls = it) }, label = { Text("监听地址（每行一个）") }, minLines = 2, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.fillMaxWidth())
+            Divider()
+            Text("高级选项", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = c.acceptDns, onCheckedChange = { c = c.copy(acceptDns = it) })
+                Spacer(Modifier.width(8.dp)); Text("魔法DNS")
+            }
+            if (c.acceptDns) {
+                OutlinedTextField(value = c.tldDnsZone, onValueChange = { c = c.copy(tldDnsZone = it) }, label = { Text("TLD后缀（如 et）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = c.disableP2p, onCheckedChange = { c = c.copy(disableP2p = it) })
+                Spacer(Modifier.width(8.dp)); Text("禁用P2P（纯中转）")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = c.enableExitNode, onCheckedChange = { c = c.copy(enableExitNode = it) })
+                Spacer(Modifier.width(8.dp)); Text("出口节点")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = c.secureMode, onCheckedChange = { c = c.copy(secureMode = it) })
+                Spacer(Modifier.width(8.dp)); Text("安全模式")
+            }
+            if (c.secureMode) {
+                OutlinedTextField(value = c.localPrivateKey, onValueChange = { c = c.copy(localPrivateKey = it) }, label = { Text("私钥") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = c.localPublicKey, onValueChange = { c = c.copy(localPublicKey = it) }, label = { Text("公钥") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+            OutlinedTextField(value = c.exitNodes, onValueChange = { c = c.copy(exitNodes = it) }, label = { Text("出口节点列表") }, minLines = 2, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = c.proxyNetworks, onValueChange = { c = c.copy(proxyNetworks = it) }, label = { Text("子网代理（每行一个CIDR）") }, minLines = 2, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = c.routes, onValueChange = { c = c.copy(routes = it) }, label = { Text("手动路由（每行一个CIDR）") }, minLines = 2, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = c.hostname, onValueChange = { c = c.copy(hostname = it) }, label = { Text("主机名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = c.relayNetworkWhitelist, onValueChange = { c = c.copy(relayNetworkWhitelist = it) }, label = { Text("中转白名单（* = 全转发）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         }
-    )
+    }, confirmButton = {
+        Button(onClick = { onSave(c) }) { Text("保存") }
+    }, dismissButton = {
+        TextButton(onClick = onDismiss) { Text("取消") }
+    })
+}
+
+// ─────────────── 设置对话框 ───────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsDialog(onDismiss: () -> Unit, onImport: () -> Unit, onExport: (EasyTierConfig) -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("设置") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("配置文件管理", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Button(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.ImportContacts, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("导入配置文件 (.toml)")
+            }
+        }
+    }, confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } })
+}
+
+// ─────────────── 工具函数 ───────────────
+private suspend fun mgrGetStatus(cfg: EasyTierConfig): NetworkSnapshot = withContext(Dispatchers.IO) {
+    runCatching {
+        val info = EasyTierJNI.collectNetworkInfos(20)
+        if (info.isNullOrBlank()) return@runCatching NetworkSnapshot()
+        val root = JSONObject(info)
+        val mapObj = root.optJSONObject("map") ?: return@runCatching NetworkSnapshot()
+        val inst = mapObj.optJSONObject(cfg.instanceName) ?: mapObj.optJSONObject("easytier") ?: return@runCatching NetworkSnapshot()
+
+        val myNodeJson = inst.optJSONObject("my_node_info")
+        val myNode = if (myNodeJson != null) {
+            val addrJson = myNodeJson.optJSONObject("virtual_ipv4")?.optJSONObject("address")
+            val addr = addrJson?.optInt("addr", 0) ?: 0
+            val netLen = myNodeJson.optJSONObject("virtual_ipv4")?.optInt("network_length", 24) ?: 24
+            val ip = if (addr != 0) "${(addr ushr 24) and 0xFF}.${(addr ushr 16) and 0xFF}.${(addr ushr 8) and 0xFF}.${addr and 0xFF}" else ""
+            MyNodeInfo(myNodeJson.optString("hostname", "未知"), "$ip/$netLen", myNodeJson.optString("version", ""))
+        } else null
+
+        val peers = mutableListOf<PeerInfo>()
+        val routesArr = inst.optJSONArray("routes")
+        if (routesArr != null) {
+            for (i in 0 until routesArr.length()) {
+                val r = routesArr.getJSONObject(i)
+                val pid = r.optLong("peer_id", -1)
+                if (pid < 0) continue
+                val ph = r.optString("hostname", "节点${pid.toString().takeLast(4)}")
+                val rip = r.optJSONObject("ipv4_addr")?.optJSONObject("address")?.optInt("addr", 0) ?: 0
+                val vip = if (rip != 0) "${(rip ushr 24) and 0xFF}.${(rip ushr 16) and 0xFF}.${(rip ushr 8) and 0xFF}.${rip and 0xFF}" else "未知"
+                val stats = r.optJSONObject("stats")
+                val lat = if (stats != null) "${stats.optLong("latency_us", 0) / 1000} ms" else ""
+                val natRaw = r.opt("nat_type")
+                val nat = when { natRaw is String -> natRaw; natRaw is Int -> listOf("未知","开放互联网","","完全锥形","","端口限制锥形","对称型")[natRaw.coerceIn(0,6)]; else -> "未知" }
+                peers.add(PeerInfo(ph, vip, r.optLong("next_hop_peer_id", -1) == pid, lat, nat))
+            }
+        }
+
+        val events = mutableListOf<String>()
+        val eventsArr = inst.optJSONArray("events")
+        if (eventsArr != null) {
+            for (i in 0 until eventsArr.length()) {
+                try { events.add(eventsArr.getString(i)) } catch (_: Exception) {}
+            }
+        }
+
+        val error = if (!inst.optBoolean("running", true)) inst.optString("error_msg", null) else null
+        NetworkSnapshot(isRunning = inst.optBoolean("running", false), DetailedNetworkInfo(myNode, peers, events, error))
+    }.getOrNull() ?: NetworkSnapshot(detailed = DetailedNetworkInfo(error = "解析失败"))
 }
