@@ -25,7 +25,6 @@ import kotlin.concurrent.thread
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(onBack: () -> Unit) {
-    val scope = rememberCoroutineScope()
     var leftPath by remember { mutableStateOf("/storage/emulated/0") }
     var rightPath by remember { mutableStateOf("/storage/emulated/0") }
     var leftEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
@@ -33,6 +32,7 @@ fun FilesScreen(onBack: () -> Unit) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var showActionMenu by remember { mutableStateOf(false) }
     var selectedEntry by remember { mutableStateOf<FileEntry?>(null) }
+    val scope = rememberCoroutineScope()
 
     fun loadEntries(path: String, isLeft: Boolean) {
         thread {
@@ -72,8 +72,16 @@ fun FilesScreen(onBack: () -> Unit) {
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
                     
                     Text("本地存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
-                    StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0", scope) { scope.launch { drawerState.close(); leftPath = "/storage/emulated/0"; rightPath = "/storage/emulated/0" } }
-                    StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download", scope) { scope.launch { drawerState.close(); leftPath = "/storage/emulated/0/Download"; rightPath = "/storage/emulated/0/Download" } }
+                    StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0") {
+                        leftPath = "/storage/emulated/0"
+                        rightPath = "/storage/emulated/0"
+                        scope.launch { drawerState.close() }
+                    }
+                    StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download") {
+                        leftPath = "/storage/emulated/0/Download"
+                        rightPath = "/storage/emulated/0/Download"
+                        scope.launch { drawerState.close() }
+                    }
                 }
             }
         }
@@ -281,11 +289,11 @@ private fun formatSize(size: Long): String = when {
 }
 
 @Composable
-private fun StorageItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, path: String, onClick: (String) -> Unit) {
+private fun StorageItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, path: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick(path) }
+            .clickable(onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
