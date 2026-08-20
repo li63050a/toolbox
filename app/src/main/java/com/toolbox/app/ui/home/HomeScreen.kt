@@ -1,10 +1,14 @@
 package com.toolbox.app.ui.home
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -12,11 +16,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.toolbox.app.R
 import com.toolbox.app.ui.Routes
+import kotlinx.coroutines.launch
 
 private data class Feature(
     val route: String,
@@ -40,7 +46,7 @@ private val features = listOf(
 @Composable
 fun HomeScreen(onOpen: (String) -> Unit) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    var selectedIndex by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -75,10 +81,10 @@ fun HomeScreen(onOpen: (String) -> Unit) {
                             modifier = Modifier.padding(16.dp, 8.dp, 16.dp, 4.dp)
                         )
                     }
-                    item { DrawerItem(Icons.Filled.Terminal, "SSH终端", Routes.SSH) { selectedIndex = 0; onOpen(Routes.SSH); drawerState.close() } }
-                    item { DrawerItem(Icons.Filled.Dns, "VPN代理", Routes.VPN) { selectedIndex = 1; onOpen(Routes.VPN); drawerState.close() } }
-                    item { DrawerItem(Icons.Filled.Shield, "Shizuku", Routes.SHIZUKU) { selectedIndex = 2; onOpen(Routes.SHIZUKU); drawerState.close() } }
-                    item { DrawerItem(Icons.Filled.Devices, "ADB管理器", Routes.ADB) { selectedIndex = 3; onOpen(Routes.ADB); drawerState.close() } }
+                    item { DrawerItem(Icons.Filled.Terminal, "SSH终端", Routes.SSH) { scope.launch { drawerState.close() }; onOpen(Routes.SSH) } }
+                    item { DrawerItem(Icons.Filled.Dns, "VPN代理", Routes.VPN) { scope.launch { drawerState.close() }; onOpen(Routes.VPN) } }
+                    item { DrawerItem(Icons.Filled.Shield, "Shizuku", Routes.SHIZUKU) { scope.launch { drawerState.close() }; onOpen(Routes.SHIZUKU) } }
+                    item { DrawerItem(Icons.Filled.Devices, "ADB管理器", Routes.ADB) { scope.launch { drawerState.close() }; onOpen(Routes.ADB) } }
                     
                     item {
                         Text(
@@ -87,8 +93,8 @@ fun HomeScreen(onOpen: (String) -> Unit) {
                             modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)
                         )
                     }
-                    item { DrawerItem(Icons.Filled.FolderOpen, "文件管理器", Routes.FILES) { selectedIndex = 4; onOpen(Routes.FILES); drawerState.close() } }
-                    item { DrawerItem(Icons.Filled.Download, "下载器", Routes.DOWNLOAD) { selectedIndex = 5; onOpen(Routes.DOWNLOAD); drawerState.close() } }
+                    item { DrawerItem(Icons.Filled.FolderOpen, "文件管理器", Routes.FILES) { scope.launch { drawerState.close() }; onOpen(Routes.FILES) } }
+                    item { DrawerItem(Icons.Filled.Download, "下载器", Routes.DOWNLOAD) { scope.launch { drawerState.close() }; onOpen(Routes.DOWNLOAD) } }
                     
                     item {
                         Text(
@@ -97,8 +103,8 @@ fun HomeScreen(onOpen: (String) -> Unit) {
                             modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)
                         )
                     }
-                    item { DrawerItem(Icons.Filled.GraphicEq, "分贝仪", Routes.DECIBEL) { selectedIndex = 6; onOpen(Routes.DECIBEL); drawerState.close() } }
-                    item { DrawerItem(Icons.Filled.Article, "日志查看", Routes.LOG) { selectedIndex = 7; onOpen(Routes.LOG); drawerState.close() } }
+                    item { DrawerItem(Icons.Filled.GraphicEq, "分贝仪", Routes.DECIBEL) { scope.launch { drawerState.close() }; onOpen(Routes.DECIBEL) } }
+                    item { DrawerItem(Icons.Filled.Article, "日志查看", Routes.LOG) { scope.launch { drawerState.close() }; onOpen(Routes.LOG) } }
                     
                     item { Spacer(Modifier.height(16.dp)) }
                     Divider()
@@ -110,8 +116,8 @@ fun HomeScreen(onOpen: (String) -> Unit) {
                             modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)
                         )
                     }
-                    item { DrawerItem(Icons.Filled.Settings, "设置", Routes.SETTINGS) { selectedIndex = 8; onOpen(Routes.SETTINGS); drawerState.close() } }
-                    item { DrawerItem(Icons.Filled.Person, "开发者信息", Routes.ABOUT) { selectedIndex = 9; onOpen(Routes.ABOUT); drawerState.close() } }
+                    item { DrawerItem(Icons.Filled.Settings, "设置", Routes.SETTINGS) { scope.launch { drawerState.close() }; onOpen(Routes.SETTINGS) } }
+                    item { DrawerItem(Icons.Filled.Person, "开发者信息", Routes.ABOUT) { scope.launch { drawerState.close() }; onOpen(Routes.ABOUT) } }
                     item { Spacer(Modifier.height(32.dp)) }
                 }
             }
@@ -123,7 +129,7 @@ fun HomeScreen(onOpen: (String) -> Unit) {
                     title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold) },
                     navigationIcon = {
                         IconButton(onClick = { 
-                            try { drawerState.open() } catch (e: Exception) {}
+                            try { scope.launch { drawerState.open() } } catch (e: Exception) {}
                         }) {
                             Icon(Icons.Filled.Menu, contentDescription = "菜单")
                         }
