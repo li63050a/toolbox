@@ -60,6 +60,11 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
-    </application>
+        <receiver android:name=".ui.shizuku.ShizukuBootReceiver" android:enabled="false" android:exported="false">
+        <intent-filter>
+            <action android:name="android.intent.action.BOOT_COMPLETED" />
+        </intent-filter>
+    </receiver>
+</application>
 
 </manifest>
