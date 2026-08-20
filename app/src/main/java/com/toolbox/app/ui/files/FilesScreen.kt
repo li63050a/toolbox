@@ -61,10 +61,6 @@ fun FilesScreen(onBack: () -> Unit) {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
         hasPermission = perms.values.all { it }
-        if (hasPermission) {
-            loadEntries(leftPath, true)
-            loadEntries(rightPath, false)
-        }
     }
 
     fun requestPermission() {
@@ -84,7 +80,7 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     }
 
-    fun loadEntries(path: String, isLeft: Boolean) {
+    fun loadLocalFiles(path: String, isLeft: Boolean) {
         thread {
             val entries = try {
                 val dir = File(path)
@@ -110,8 +106,8 @@ fun FilesScreen(onBack: () -> Unit) {
 
     LaunchedEffect(hasPermission) {
         if (hasPermission) {
-            loadEntries(leftPath, true)
-            loadEntries(rightPath, false)
+            loadLocalFiles(leftPath, true)
+            loadLocalFiles(rightPath, false)
         }
     }
 
@@ -211,7 +207,7 @@ private fun FilePanel(side: String, path: String, entries: List<FileEntry>, onNa
 @Composable
 private fun FileRow(name: String, isDirectory: Boolean, size: Long, modified: Long, onClick: () -> Unit, onLongClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).longClickable(onClick = onLongClick).padding(horizontal = 12.dp, vertical = 10.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = MaterialTheme.shapes.medium),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = MaterialTheme.shapes.medium),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(if (isDirectory) Icons.Filled.Folder else getFileIcon(name), null, tint = if (isDirectory) Color(0xFFFFA000) else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
