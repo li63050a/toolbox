@@ -389,7 +389,7 @@ fun ShizukuScreen(onBack: () -> Unit) {
                 TextButton(onClick = { 
                     // 复制指令到剪贴板
                     val cmd = "adb shell sh /data/local/tmp/start.sh"
-                    android.content.ClipboardManager cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     cm.setPrimaryClip(android.content.ClipData.newPlainText("Shizuku指令", cmd))
                     showInstructions = false 
                 }) { Text("复制") }
