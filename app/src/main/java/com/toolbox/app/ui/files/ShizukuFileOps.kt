@@ -7,6 +7,7 @@ import com.toolbox.app.ui.filebrowser.FileOps
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 
 class ShizukuFileOps(private val context: Context) : FileOps {
 
@@ -14,109 +15,127 @@ class ShizukuFileOps(private val context: Context) : FileOps {
     override val supportsChmod: Boolean get() = true
 
     override fun rootPath(): String = "/"
-
     override fun displayName(): String = "Shizuku /"
 
     override suspend fun list(path: String): Result<List<FileEntry>> = runCatching {
-        if (!isRunning()) throw Exception("Shizuku 未运行")
-        if (Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 权限未授权")
-        
+        checkPermission()
         val cmd = "ls -la \"$path\" 2>/dev/null | grep -v '^total'"
-        val entries = executeCommand(cmd, path) ?: emptyList()
-        
-        entries.filter { it.name != "." && it.name != ".." }
-            .sortedBy { !it.isDirectory }
+        executeCommand(cmd, path) ?: emptyList()
     }
 
-    override suspend fun mkdir(path: String): Result<Unit> = runCatching {
-        if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
-        executeCommand("mkdir -p \"$path\"", path)
-    }
-
-    override suspend fun delete(path: String): Result<Unit> = runCatching {
-        if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
-        val cmd = if (path.endsWith("/")) "rm -rf \"$path\"" else "rm -f \"$path\""
-        executeCommand(cmd, path)
-    }
+    override suspend fun mkdir(path: String): Result<Unit> = runCatching { checkPermission(); executeCommand("mkdir -p \"$path\"", path) }
+    override suspend fun delete(path: String): Result<Unit> = runCatching { checkPermission(); executeCommand(if (path.endsWith("/")) "rm -rf \"$path\"" else "rm -f \"$path\"", path) }
 
     override suspend fun rename(oldPath: String, newName: String): Result<Unit> = runCatching {
-        if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
-        val parent = oldPath.substringBeforeLast('/', "").let { if (it.isEmpty()) "/" else it }
-        executeCommand("mv \"$oldPath\" \"$parent/$newName\"", oldPath)
+        checkPermission()
+        val parent = oldPath.substringBeforeLast('/', "")
+        val dest = if (parent.isEmpty()) "/$newName" else "$parent/$newName"
+        executeCommand("mv \"$oldPath\" \"$dest\"", oldPath)
     }
 
     override suspend fun download(remotePath: String, localUri: Uri, progress: (Float) -> Unit): Result<Unit> = runCatching {
-        TODO("Shizuku 下载功能待实现")
+        checkPermission()
+        val cmd = "cat \"${remotePath.replace("\"", "\\\"")}\""
+        val proc = runShizukuProcess(arrayOf("sh", "-c", cmd)) ?: throw Exception("无法启动进程")
+        try {
+            val out = context.contentResolver.openOutputStream(localUri)?.buffered()
+                ?: throw Exception("无法打开输出流: $localUri")
+            val buf = ByteArray(64 * 1024)
+            var total = 0L
+            var read = proc.inputStream.read(buf)
+            while (read > 0) {
+                out.write(buf, 0, read)
+                total += read
+                read = proc.inputStream.read(buf)
+            }
+            out.close()
+            val err = readErrorStream(proc)
+            proc.waitFor()
+            if (proc.exitValue() != 0 || err.isNotEmpty()) throw Exception("下载失败: $err")
+            Result.success(Unit)
+        } finally { proc.destroy() }
     }
 
     override suspend fun upload(remoteDir: String, localUri: Uri, progress: (Float) -> Unit): Result<Unit> = runCatching {
-        TODO("Shizuku 上传功能待实现")
+        checkPermission()
+        val localIn = context.contentResolver.openInputStream(localUri)
+            ?: throw Exception("无法打开源文件: $localUri")
+        val localBytes = localIn.readBytes()
+        localIn.close()
+
+        // base64 编码传输避免 shell 特殊字符问题
+        val encoded = android.util.Base64.encodeToString(localBytes, android.util.Base64.NO_WRAP)
+        val cmd = """printf '%s' "$encoded" | base64 -d > "${remoteDir.trimEnd('/')}/$(basename ${localUri.path ?: "file"})""""
+        executeCommand(cmd, remoteDir)
     }
 
     override suspend fun chmod(path: String, mode: Int): Result<Unit> = runCatching {
-        if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
-        val modeStr = String.format("%04o", mode)
-        executeCommand("chmod $modeStr \"$path\"", path)
+        checkPermission()
+        executeCommand(String.format("chmod %04o \"%s\"", mode, path), path)
     }
 
     fun isRunning(): Boolean = Shizuku.pingBinder()
-    
+
     fun requestPermission() {
         Shizuku.requestPermission(0)
     }
 
+    private fun checkPermission() {
+        if (!isRunning()) throw Exception("Shizuku 未运行")
+        if (Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 权限未授权")
+    }
+
     private fun executeCommand(cmd: String, currentPath: String): List<FileEntry>? {
         try {
-            val binder = Shizuku.getBinder() ?: return null
-            if (binder == null) return null
-            
-            val clazz = Class.forName("rikka.shizuku.Shizuku")
-            val method = clazz.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
-            method.isAccessible = true
-            @Suppress("UNCHECKED_CAST")
-            val process = method.invoke(null, arrayOf("sh", "-c", cmd), emptyArray<String>(), null) as java.lang.Process
-            
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            val errReader = BufferedReader(InputStreamReader(process.errorStream))
-            
-            val errorOutput = StringBuilder()
-            var line: String?
-            while (errReader.readLine().also { line = it } != null) {
-                errorOutput.append(line).append("\n")
+            val proc = runShizukuProcess(arrayOf("sh", "-c", cmd)) ?: return null
+            try {
+                val lines = readAllLines(proc)
+                return if (cmd.startsWith("ls ")) parseListOutput(lines) else emptyList()
+            } finally {
+                proc.waitFor()
+                proc.destroy()
             }
-            
-            val entries = mutableListOf<FileEntry>()
-            while (reader.readLine().also { line = it } != null) {
-                if (line.isNullOrEmpty() || line.startsWith("total")) continue
-                try {
-                    val parts = line.split(Regex("\\s+"))
-                    if (parts.size < 9) continue
-                    val perms = parts[0]
-                    val isDir = perms.startsWith("d")
-                    val name = parts[8]
-                    val size = try { parts[4].toLong() } catch (e: Exception) { 0L }
-                    
-                    entries.add(
-                        FileEntry(
-                            path = if (isDir && !name.endsWith("/")) "$currentPath$name/" else "$currentPath$name",
-                            name = name,
-                            isDirectory = isDir,
-                            size = size,
-                            modified = 0L
-                        )
-                    )
-                } catch (e: Exception) {
-                    // skip malformed lines
-                }
-            }
-            
-            process.waitFor()
-            process.destroy()
-            
-            return entries
         } catch (e: Exception) {
             e.printStackTrace()
             return null
         }
+    }
+
+    private fun readAllLines(proc: java.lang.Process): List<String> {
+        return try {
+            BufferedReader(InputStreamReader(proc.inputStream)).readLines()
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseListOutput(lines: List<String>): List<FileEntry> = lines
+        .filter { it.isNotEmpty() && !it.startsWith("total") }
+        .mapNotNull { line ->
+            val parts = line.split(Regex("\\s+"), limit = 9)
+            if (parts.size < 9) return@mapNotNull null
+            try {
+                val perms = parts[0]
+                val isDir = perms.startsWith("d")
+                val name = parts[8]
+                val size = try { parts[4].toLong() } catch (_: Exception) { 0L }
+                FileEntry(path = if (isDir && !name.endsWith("/")) "$name/" else name, name = name, isDirectory = isDir, size = size, modified = 0L)
+            } catch (_: Exception) { null }
+        }
+
+    private fun runShizukuProcess(args: Array<String>): java.lang.Process? {
+        try {
+            val clazz = Class.forName("rikka.shizuku.Shizuku")
+            val method = clazz.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
+            method.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            return method.invoke(null, args, emptyArray<String>(), null) as java.lang.Process
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    private fun readErrorStream(proc: java.lang.Process): String {
+        return try {
+            BufferedReader(InputStreamReader(proc.errorStream)).readText().trim()
+        } catch (_: Exception) { "" }
     }
 }

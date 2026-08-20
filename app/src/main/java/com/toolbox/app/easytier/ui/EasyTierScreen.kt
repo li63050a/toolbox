@@ -1,6 +1,9 @@
 package com.toolbox.app.easytier.ui
 
 import android.app.Activity
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,13 +17,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.easytier.jni.EasyTierJNI
+import com.easytier.jni.EasyTierVpnService
 import com.toolbox.app.easytier.EasyTierConfig
 import com.toolbox.app.easytier.EasyTierManager
 import com.toolbox.app.easytier.NetworkSnapshot
@@ -44,8 +47,16 @@ fun EasyTierScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var activeTab by remember { mutableStateOf(0) }
+    var vpnAuthorized by remember { mutableStateOf(false) }
+
+    val vpnLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) {
+        vpnAuthorized = true
+    }
 
     LaunchedEffect(Unit) {
+        vpnAuthorized = android.net.VpnService.prepare(context) == null
         scope.launch {
             val snap = mgr.getStatus()
             status = snap
@@ -66,11 +77,47 @@ fun EasyTierScreen(onBack: () -> Unit) {
     }
 
     fun start() {
+        if (!vpnAuthorized) {
+            val intent = android.net.VpnService.prepare(context)
+            if (intent != null) {
+                vpnLauncher.launch(intent)
+            } else {
+                vpnAuthorized = true
+                scope.launch {
+                    loading = true
+                    val result = mgr.start(config)
+                    result.fold(
+                        onSuccess = {
+                            isRunning = true
+                            loading = false
+                            val vpnIntent = Intent(context, EasyTierVpnService::class.java).apply {
+                                putExtra(EasyTierVpnService.EXTRA_INSTANCE_NAME, config.instanceName)
+                                putExtra(EasyTierVpnService.EXTRA_IPV4_ADDRESS, if (config.dhcp) "10.64.0.1/24" else "${config.virtualIpv4.split('/')[0]}/24")
+                            }
+                            context.startForegroundService(vpnIntent)
+                        },
+                        onFailure = {
+                            scope.launch { snackbar.showSnackbar(result.exceptionOrNull()?.message ?: "启动失败") }
+                            loading = false
+                        }
+                    )
+                }
+            }
+            return
+        }
         scope.launch {
             loading = true
             val result = mgr.start(config)
             result.fold(
-                onSuccess = { isRunning = true; loading = false },
+                onSuccess = {
+                    isRunning = true
+                    loading = false
+                    val vpnIntent = Intent(context, EasyTierVpnService::class.java).apply {
+                        putExtra(EasyTierVpnService.EXTRA_INSTANCE_NAME, config.instanceName)
+                        putExtra(EasyTierVpnService.EXTRA_IPV4_ADDRESS, if (config.dhcp) "10.64.0.1/24" else "${config.virtualIpv4.split('/')[0]}/24")
+                    }
+                    context.startForegroundService(vpnIntent)
+                },
                 onFailure = {
                     scope.launch { snackbar.showSnackbar(result.exceptionOrNull()?.message ?: "启动失败") }
                     loading = false
@@ -84,6 +131,10 @@ fun EasyTierScreen(onBack: () -> Unit) {
             mgr.stop()
             isRunning = false
             status = mgr.getStatus()
+            val vpnIntent = Intent(context, EasyTierVpnService::class.java).apply {
+                action = EasyTierVpnService.ACTION_STOP
+            }
+            context.stopService(vpnIntent)
         }
     }
 

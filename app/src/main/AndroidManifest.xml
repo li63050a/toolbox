@@ -40,6 +40,11 @@
             android:foregroundServiceType="dataSync"
             android:permission="android.permission.BIND_VPN_SERVICE" />
 
+        <service
+            android:name="com.easytier.jni.EasyTierVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
