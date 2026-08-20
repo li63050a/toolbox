@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.swipeRefresh
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -38,6 +39,7 @@ import com.toolbox.app.ftp.FtpFileOps
 import com.toolbox.app.ssh.SftpFileOps
 import com.toolbox.app.ssh.SshEngine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -74,7 +76,7 @@ sealed interface FsTarget {
     }
 }
 
-data class StoredConnection(val id: String, val type: String, val target: FsTarget)
+data class BookmarkedPath(val path: String, val name: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,6 +86,7 @@ fun FilesScreen(onBack: () -> Unit) {
     val repo = RepositoryProvider.connections
     val all by repo.connections.collectAsState(initial = emptyList())
     
+    // 基础状态
     var leftTarget by remember { mutableStateOf<FsTarget>(FsTarget.Local) }
     var rightTarget by remember { mutableStateOf<FsTarget>(FsTarget.Local) }
     var leftPath by remember { mutableStateOf(getStoragePath()) }
@@ -92,6 +95,19 @@ fun FilesScreen(onBack: () -> Unit) {
     var rightEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     var leftLoading by remember { mutableStateOf(false) }
     var rightLoading by remember { mutableStateOf(false) }
+    
+    // 搜索状态
+    var leftSearchQuery by remember { mutableStateOf("") }
+    var rightSearchQuery by remember { mutableStateOf("") }
+    var showSearch by remember { mutableStateOf(false) }
+    
+    // 批量操作状态
+    var leftSelectionMode by remember { mutableStateOf(false) }
+    var rightSelectionMode by remember { mutableStateOf(false) }
+    var selectedLeftFiles by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedRightFiles by remember { mutableStateOf<Set<String>>(emptySet()) }
+    
+    // 其他状态
     var selectedEntry by remember { mutableStateOf<FileEntry?>(null) }
     var showActionMenu by remember { mutableStateOf(false) }
     var actionMenuSide by remember { mutableStateOf("left") }
@@ -99,22 +115,27 @@ fun FilesScreen(onBack: () -> Unit) {
     
     // 侧边栏相关
     var drawerOpen by remember { mutableStateOf(false) }
-    var showFtpModal by remember { mutableStateOf(false) }
-    var showSshModal by remember { mutableStateOf(false) }
+    var showBookmarks by remember { mutableStateOf(false) }
+    var showRecent by remember { mutableStateOf(false) }
     
-    // FTP 表单
-    var ftpHost by remember { mutableStateOf("") }
-    var ftpPort by remember { mutableStateOf("21") }
-    var ftpUser by remember { mutableStateOf("anonymous") }
-    var ftpPass by remember { mutableStateOf("") }
-    var ftpPath by remember { mutableStateOf("") }
-    var ftpName by remember { mutableStateOf("") }
-    var ftpPassive by remember { mutableStateOf(true) }
-
+    // 书签和最近访问
+    var bookmarks by remember { mutableStateOf<List<BookmarkedPath>>(emptyList()) }
+    var recentPaths by remember { mutableStateOf<List<String>>(emptyList()) }
+    var connectionStatus by remember { mutableStateOf<String?>(null) }
+    
     // Shizuku 状态
     var shizukuRunning by remember { mutableStateOf(false) }
     var shizukuPermission by remember { mutableStateOf(false) }
 
+    // 权限启动器
+    val runtimePermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> 
+        loadFiles(leftTarget, leftPath, true)
+        loadFiles(rightTarget, rightPath, false) 
+    }
+
+    // Shizuku 状态监听
     LaunchedEffect(Unit) {
         shizukuRunning = Shizuku.pingBinder()
         if (shizukuRunning) {
@@ -127,6 +148,7 @@ fun FilesScreen(onBack: () -> Unit) {
         Shizuku.addBinderDeadListener {
             shizukuRunning = false
             shizukuPermission = false
+            connectionStatus = "Shizuku 已断开"
         }
     }
 
@@ -153,10 +175,12 @@ fun FilesScreen(onBack: () -> Unit) {
                         withContext(Dispatchers.Main) {
                             if (isLeft) { leftEntries = entries; leftLoading = false }
                             else { rightEntries = entries; rightLoading = false }
+                            connectionStatus = null
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             if (isLeft) leftLoading = false else rightLoading = false
+                            connectionStatus = "加载失败"
                         }
                     }
                 }
@@ -168,6 +192,7 @@ fun FilesScreen(onBack: () -> Unit) {
                         if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission() != 0) {
                             withContext(Dispatchers.Main) {
                                 if (isLeft) leftLoading = false else rightLoading = false
+                                connectionStatus = "Shizuku 未授权"
                             }
                             return@launch
                         }
@@ -176,10 +201,12 @@ fun FilesScreen(onBack: () -> Unit) {
                         withContext(Dispatchers.Main) {
                             if (isLeft) { leftEntries = entries; leftLoading = false }
                             else { rightEntries = entries; rightLoading = false }
+                            connectionStatus = null
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             if (isLeft) leftLoading = false else rightLoading = false
+                            connectionStatus = "连接失败"
                         }
                     }
                 }
@@ -194,10 +221,12 @@ fun FilesScreen(onBack: () -> Unit) {
                         withContext(Dispatchers.Main) {
                             if (isLeft) { leftEntries = entries; leftLoading = false }
                             else { rightEntries = entries; rightLoading = false }
+                            connectionStatus = null
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             if (isLeft) leftLoading = false else rightLoading = false
+                            connectionStatus = "SSH 连接失败"
                         }
                     }
                 }
@@ -213,10 +242,12 @@ fun FilesScreen(onBack: () -> Unit) {
                         withContext(Dispatchers.Main) {
                             if (isLeft) { leftEntries = entries; leftLoading = false }
                             else { rightEntries = entries; rightLoading = false }
+                            connectionStatus = null
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             if (isLeft) leftLoading = false else rightLoading = false
+                            connectionStatus = "FTP 连接失败"
                         }
                     }
                 }
@@ -226,10 +257,6 @@ fun FilesScreen(onBack: () -> Unit) {
 
     LaunchedEffect(leftTarget, leftPath) { loadFiles(leftTarget, leftPath, true) }
     LaunchedEffect(rightTarget, rightPath) { loadFiles(rightTarget, rightPath, false) }
-
-    val runtimePermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> loadFiles(leftTarget, leftPath, true); loadFiles(rightTarget, rightPath, false) }
 
     fun requestPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -245,84 +272,56 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     }
 
-    fun executeTransfer(actionType: String, entry: FileEntry, fromSide: String) {
-        scope.launch {
-            val targetPath = if (fromSide == "left") rightPath else leftPath
-            try {
-                if (actionType == "DOWNLOAD") {
-                    val localPath = "${getStoragePath()}/Download/${entry.name}"
-                    val localFile = File(localPath)
-                    localFile.parentFile?.mkdirs()
-                    
-                    val sourceClient = when (val s = if (fromSide == "left") leftTarget else rightTarget) {
-                        is FsTarget.Ftp -> FtpClient((s as FsTarget.Ftp).cfg).connect().getOrNull()
-                        else -> null
-                    }
-                    
-                    if (sourceClient != null) {
-                        val input = sourceClient.retrieveFileStream(entry.path)
-                        if (input != null) {
-                            localFile.outputStream().use { out -> input.copyTo(out) }
-                            sourceClient.completePendingCommand()
-                        }
-                        runCatching { sourceClient.logout() }
-                        runCatching { sourceClient.disconnect() }
-                        snackbarHostState.showSnackbar("已下载到: $localPath")
-                    }
-                } else if (actionType == "MOVE") {
-                    val sourceFile = File(entry.path)
-                    if (sourceFile.exists()) {
-                        val destClient = when (val d = if (fromSide == "left") rightTarget else leftTarget) {
-                            is FsTarget.Ftp -> FtpClient((d as FsTarget.Ftp).cfg).connect().getOrNull()
-                            else -> null
-                        }
-                        
-                        if (destClient != null) {
-                            destClient.controlEncoding = "UTF-8"
-                            val destPath = "${targetPath}/${entry.name}"
-                            val input = sourceFile.inputStream()
-                            destClient.storeFileStream(destPath)?.use { out -> input.copyTo(out) }
-                            destClient.completePendingCommand()
-                            input.close()
-                            
-                            sourceFile.delete()
-                            snackbarHostState.showSnackbar("已移动")
-                            
-                            runCatching { destClient.logout() }
-                            runCatching { destClient.disconnect() }
-                        }
-                    }
-                }
-                
-                loadFiles(leftTarget, leftPath, true)
-                loadFiles(rightTarget, rightPath, false)
-            } catch (e: Exception) {
-                snackbarHostState.showSnackbar("操作失败: ${e.message}")
-            }
+    // 搜索过滤
+    val filteredLeftEntries = leftEntries.filter { entry ->
+        leftSearchQuery.isEmpty() || entry.name.contains(leftSearchQuery, ignoreCase = true)
+    }
+    val filteredRightEntries = rightEntries.filter { entry ->
+        rightSearchQuery.isEmpty() || entry.name.contains(rightSearchQuery, ignoreCase = true)
+    }
+
+    // 批量操作
+    fun toggleSelectLeft(entry: FileEntry) {
+        selectedLeftFiles = if (selectedLeftFiles.contains(entry.path)) {
+            selectedLeftFiles - entry.path
+        } else {
+            selectedLeftFiles + entry.path
+        }
+    }
+    
+    fun toggleSelectRight(entry: FileEntry) {
+        selectedRightFiles = if (selectedRightFiles.contains(entry.path)) {
+            selectedRightFiles - entry.path
+        } else {
+            selectedRightFiles + entry.path
         }
     }
 
-    // 保存 FTP 连接
-    fun saveFtpConnection() {
-        val cfg = ConnectionConfig.Ftp(
-            name = ftpName,
-            host = ftpHost,
-            port = ftpPort.toIntOrNull() ?: 21,
-            user = ftpUser,
-            password = ftpPass,
-            passive = ftpPassive
-        )
-        scope.launch {
-            repo.add(cfg)
+    // 书签功能
+    fun toggleBookmark(side: String, path: String, name: String) {
+        val exists = bookmarks.any { it.path == path }
+        if (exists) {
+            bookmarks = bookmarks.filter { it.path != path }
+            scope.launch { snackbarHostState.showSnackbar("已取消书签") }
+        } else {
+            bookmarks = bookmarks + BookmarkedPath(path, name)
+            scope.launch { snackbarHostState.showSnackbar("已添加书签") }
         }
-        showFtpModal = false
-        scope.launch { snackbarHostState.showSnackbar("FTP 连接已保存") }
+    }
+    
+    fun jumpToBookmark(path: String) {
+        if (actionMenuSide == "left") leftPath = path else rightPath = path
+        showBookmarks = false
     }
 
-    // 保存 SSH 连接
-    fun saveSshConnection() {
-        // TODO: 实现 SSH 连接保存
-        showSshModal = false
+    // 最近访问
+    fun addToRecent(path: String) {
+        recentPaths = listOf(path) + recentPaths.filter { it != path }.take(9)
+    }
+
+    fun jumpToRecent(path: String) {
+        if (actionMenuSide == "left") leftPath = path else rightPath = path
+        showRecent = false
     }
 
     // 权限检查
@@ -341,10 +340,177 @@ fun FilesScreen(onBack: () -> Unit) {
         return
     }
 
+    // 主界面
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { 
+                    Column {
+                        Text("文件管理器", fontWeight = FontWeight.Bold)
+                        if (connectionStatus != null) {
+                            Text(connectionStatus ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = { drawerOpen = true }) {
+                        Icon(Icons.Filled.Menu, "菜单")
+                    }
+                },
+                actions = {
+                    if (leftSelectionMode || rightSelectionMode) {
+                        IconButton(onClick = { 
+                            leftSelectionMode = false
+                            rightSelectionMode = false
+                            selectedLeftFiles = emptySet()
+                            selectedRightFiles = emptySet()
+                        }) {
+                            Icon(Icons.Filled.Close, null)
+                        }
+                        Text("${selectedLeftFiles.size + selectedRightFiles.size}", color = MaterialTheme.colorScheme.onPrimary)
+                    } else {
+                        IconButton(onClick = { showSearch = !showSearch }) {
+                            Icon(Icons.Filled.Search, "搜索")
+                        }
+                        IconButton(onClick = { showBookmarks = true }) {
+                            Icon(Icons.Filled.Bookmark, "书签")
+                        }
+                        IconButton(onClick = { showRecent = true }) {
+                            Icon(Icons.Filled.RecentActors, "最近")
+                        }
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            if (leftSelectionMode || rightSelectionMode) {
+                BottomAppBar {
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        Text("已选择 ${selectedLeftFiles.size + selectedRightFiles.size} 个文件")
+                    }
+                    IconButton(onClick = { 
+                        scope.launch {
+                            val paths = selectedLeftFiles + selectedRightFiles
+                            paths.forEach { File(it).deleteRecursively() }
+                            loadFiles(leftTarget, leftPath, true)
+                            loadFiles(rightTarget, rightPath, false)
+                            leftSelectionMode = false
+                            rightSelectionMode = false
+                            selectedLeftFiles = emptySet()
+                            selectedRightFiles = emptySet()
+                            snackbarHostState.showSnackbar("已删除 ${paths.size} 个文件")
+                        }
+                    }) {
+                        Icon(Icons.Filled.Delete, "删除", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // 搜索框
+            if (showSearch) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = leftSearchQuery,
+                        onValueChange = { leftSearchQuery = it },
+                        placeholder = { Text("搜索左侧...") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Filled.Search, null, modifier = Modifier.size(18.dp)) }
+                    )
+                    OutlinedTextField(
+                        value = rightSearchQuery,
+                        onValueChange = { rightSearchQuery = it },
+                        placeholder = { Text("搜索右侧...") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Filled.Search, null, modifier = Modifier.size(18.dp)) }
+                    )
+                    IconButton(onClick = { showSearch = false }) {
+                        Icon(Icons.Filled.Close, null)
+                    }
+                }
+            }
+            
+            // 文件面板
+            Row(Modifier.fillMaxSize()) {
+                FilePanelWithRefresh(
+                    side = "左",
+                    target = leftTarget,
+                    path = leftPath,
+                    entries = filteredLeftEntries,
+                    loading = leftLoading,
+                    isSelectionMode = leftSelectionMode,
+                    selectedFiles = selectedLeftFiles,
+                    onRefresh = { loadFiles(leftTarget, leftPath, true) },
+                    onNavigate = { 
+                        leftPath = it
+                        addToRecent(it)
+                    },
+                    onClick = { entry ->
+                        if (leftSelectionMode) {
+                            toggleSelectLeft(entry)
+                        } else {
+                            if (entry.isDirectory) {
+                                leftPath = entry.path
+                                addToRecent(entry.path)
+                            } else {
+                                selectedEntry = entry
+                                showActionMenu = true
+                                actionMenuSide = "left"
+                            }
+                        }
+                    },
+                    onLongClick = { entry ->
+                        leftSelectionMode = true
+                        toggleSelectLeft(entry)
+                    }
+                )
+                VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
+                FilePanelWithRefresh(
+                    side = "右",
+                    target = rightTarget,
+                    path = rightPath,
+                    entries = filteredRightEntries,
+                    loading = rightLoading,
+                    isSelectionMode = rightSelectionMode,
+                    selectedFiles = selectedRightFiles,
+                    onRefresh = { loadFiles(rightTarget, rightPath, false) },
+                    onNavigate = { 
+                        rightPath = it
+                        addToRecent(it)
+                    },
+                    onClick = { entry ->
+                        if (rightSelectionMode) {
+                            toggleSelectRight(entry)
+                        } else {
+                            if (entry.isDirectory) {
+                                rightPath = entry.path
+                                addToRecent(entry.path)
+                            } else {
+                                selectedEntry = entry
+                                showActionMenu = true
+                                actionMenuSide = "right"
+                            }
+                        }
+                    },
+                    onLongClick = { entry ->
+                        rightSelectionMode = true
+                        toggleSelectRight(entry)
+                    }
+                )
+            }
+        }
+    }
+
     // 操作菜单
     if (showActionMenu && selectedEntry != null) {
         val hasRemoteDest = (actionMenuSide == "left" && rightTarget !is FsTarget.Local) || (actionMenuSide == "right" && leftTarget !is FsTarget.Local)
-        val hasRemoteSource = (actionMenuSide == "left" && leftTarget !is FsTarget.Local) || (actionMenuSide == "right" && rightTarget !is FsTarget.Local)
         
         AlertDialog(
             onDismissRequest = { showActionMenu = false },
@@ -360,13 +526,7 @@ fun FilesScreen(onBack: () -> Unit) {
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (hasRemoteDest) {
-                        TextButton(onClick = { executeTransfer("MOVE", selectedEntry!!, actionMenuSide); showActionMenu = false }) { Text("移动到右边", color = MaterialTheme.colorScheme.primary) }
-                    }
-                    if (hasRemoteSource) {
-                        TextButton(onClick = { executeTransfer("MOVE", selectedEntry!!, actionMenuSide); showActionMenu = false }) { Text("移动到左边", color = MaterialTheme.colorScheme.primary) }
-                    }
-                    if (hasRemoteSource && selectedEntry!!.isDirectory) {
-                        TextButton(onClick = { executeTransfer("DOWNLOAD", selectedEntry!!, actionMenuSide); showActionMenu = false }) { Text("下载", color = MaterialTheme.colorScheme.primary) }
+                        TextButton(onClick = { showActionMenu = false }) { Text("移动到右边", color = MaterialTheme.colorScheme.primary) }
                     }
                     TextButton(onClick = { showActionMenu = false }) { Text("删除", color = MaterialTheme.colorScheme.error) }
                 }
@@ -374,272 +534,149 @@ fun FilesScreen(onBack: () -> Unit) {
         )
     }
 
-    // FTP 添加弹窗
-    if (showFtpModal) {
-        ModalBottomSheet(onDismissRequest = { showFtpModal = false }) {
-            SheetContent(
-                title = "添加 FTP",
-                host = ftpHost, onHostChange = { ftpHost = it },
-                port = ftpPort, onPortChange = { ftpPort = it },
-                user = ftpUser, onUserChange = { ftpUser = it },
-                pass = ftpPass, onPassChange = { ftpPass = it },
-                name = ftpName, onNameChange = { ftpName = it },
-                passive = ftpPassive, onPassiveChange = { ftpPassive = it },
-                onSave = { saveFtpConnection() },
-                onCancel = { showFtpModal = false }
-            )
-        }
-    }
-
-    // 主界面
-    ModalNavigationDrawer(
-        drawerState = rememberDrawerState(initialValue = DrawerValue.Closed),
-        drawerContent = {
-            DrawerContent(
-                allConnections = all,
-                shizukuRunning = shizukuRunning,
-                onAddFtp = { showFtpModal = true; drawerOpen = false },
-                onAddSsh = { showSshModal = true; drawerOpen = false },
-                onSelectLocal = { target ->
-                    leftTarget = target; rightTarget = target
-                    leftPath = getStoragePath(); rightPath = getStoragePath()
-                    drawerOpen = false
-                }
-            )
-        }
-    ) {
-        Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = {
-                TopAppBar(
-                    title = { 
-                        Column {
-                            Text(stringResource(R.string.home_files_title), fontWeight = FontWeight.Bold)
-                            Text("$leftPath", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { drawerOpen = true }) {
-                            Icon(Icons.Filled.Menu, "侧边栏")
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { loadFiles(leftTarget, leftPath, true); loadFiles(rightTarget, rightPath, false) }) {
-                            Icon(Icons.Filled.Refresh, "刷新")
-                        }
-                        IconButton(onClick = { /* 搜索 */ }) {
-                            Icon(Icons.Filled.Search, "搜索")
-                        }
-                        IconButton(onClick = { /* 更多菜单 */ }) {
-                            Icon(Icons.Filled.MoreVert, "更多")
+    // 书签对话框
+    if (showBookmarks) {
+        AlertDialog(
+            onDismissRequest = { showBookmarks = false },
+            title = { Text("书签") },
+            text = {
+                if (bookmarks.isEmpty()) {
+                    Text("暂无书签", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn {
+                        items(bookmarks) { bookmark ->
+                            BookmarkItem(bookmark) { jumpToBookmark(bookmark.path) }
                         }
                     }
-                )
+                }
             },
-            bottomBar = {
-                Row(
-                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    navButton(Icons.Filled.Add, "新建")
-                    navButton(Icons.Filled.Upload, "上传")
-                    navButton(Icons.Filled.Download, "下载")
-                    navButton(Icons.Filled.Settings, "设置")
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (selectedEntry != null) {
+                        TextButton(onClick = { 
+                            toggleBookmark(actionMenuSide, selectedEntry!!.path, selectedEntry!!.name)
+                            showBookmarks = false
+                        }) { 
+                            Text(if (bookmarks.any { it.path == selectedEntry!!.path }) "取消书签" else "添加书签") 
+                        }
+                    }
+                    TextButton(onClick = { showBookmarks = false }) { Text("关闭") }
                 }
             }
-        ) { padding ->
-            Row(Modifier.fillMaxSize().padding(padding)) {
-                FilePanel(
-                    side = "左",
-                    target = leftTarget,
-                    path = leftPath,
-                    entries = leftEntries,
-                    loading = leftLoading,
-                    onNavigate = { leftPath = it },
-                    onClick = { selectedEntry = it },
-                    onLongClick = { selectedEntry = it; actionMenuSide = "left"; showActionMenu = true }
-                )
-                VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
-                FilePanel(
-                    side = "右",
-                    target = rightTarget,
-                    path = rightPath,
-                    entries = rightEntries,
-                    loading = rightLoading,
-                    onNavigate = { rightPath = it },
-                    onClick = { selectedEntry = it },
-                    onLongClick = { selectedEntry = it; actionMenuSide = "right"; showActionMenu = true }
-                )
-            }
-        }
+        )
     }
-}
 
-@Composable
-private fun navButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, label, modifier = Modifier.size(24.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-@Composable
-private fun SheetContent(
-    title: String,
-    host: String, onHostChange: (String) -> Unit,
-    port: String, onPortChange: (String) -> Unit,
-    user: String, onUserChange: (String) -> Unit,
-    pass: String, onPassChange: (String) -> Unit,
-    name: String, onNameChange: (String) -> Unit,
-    passive: Boolean, onPassiveChange: (Boolean) -> Unit,
-    onSave: () -> Unit,
-    onCancel: () -> Unit
-) {
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        
-        OutlinedTextField(value = name, onValueChange = onNameChange, label = { Text("名称") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = host, onValueChange = onHostChange, label = { Text("主机") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = port, onValueChange = onPortChange, label = { Text("端口") }, modifier = Modifier.width(120.dp))
-        OutlinedTextField(value = user, onValueChange = onUserChange, label = { Text("用户名") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = pass, onValueChange = onPassChange, label = { Text("密码") }, modifier = Modifier.fillMaxWidth())
-        
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("被动模式", style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.width(8.dp))
-            Switch(checked = passive, onCheckedChange = onPassiveChange)
-        }
-        
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("取消") }
-            Button(onClick = onSave, modifier = Modifier.weight(1f)) { Text("保存") }
-        }
-    }
-}
-
-@Composable
-private fun DrawerContent(
-    allConnections: List<ConnectionConfig>,
-    shizukuRunning: Boolean,
-    onAddFtp: () -> Unit,
-    onAddSsh: () -> Unit,
-    onSelectLocal: (FsTarget) -> Unit
-) {
-    Surface(color = MaterialTheme.colorScheme.surface) {
-        Column {
-            // 头部
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Filled.Android, null, modifier = Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-                Text("工具箱", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            }
-            
-            Divider()
-            
-            // 本地存储
-            Text("本地存储", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(16.dp, 8.dp), color = MaterialTheme.colorScheme.primary)
-            DrawerItem(Icons.Filled.FolderOpen, "内部存储") { onSelectLocal(FsTarget.Local) }
-            DrawerItem(Icons.Filled.Download, "Download") { onSelectLocal(FsTarget.Local) }
-            DrawerItem(Icons.Filled.PhotoLibrary, "DCIM") { onSelectLocal(FsTarget.Local) }
-            
-            // Shizuku
-            if (shizukuRunning) {
-                Divider()
-                Text("系统", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(16.dp, 8.dp), color = MaterialTheme.colorScheme.primary)
-                DrawerItem(Icons.Filled.Shield, "Shizuku") { onSelectLocal(FsTarget.Shizuku) }
-            }
-            
-            // 网络存储
-            val sshList = allConnections.filterIsInstance<ConnectionConfig.Ssh>()
-            val ftpList = allConnections.filterIsInstance<ConnectionConfig.Ftp>()
-            
-            if (sshList.isNotEmpty() || ftpList.isNotEmpty()) {
-                Divider()
-                Text("网络", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(16.dp, 8.dp), color = MaterialTheme.colorScheme.primary)
-                sshList.forEach { conn ->
-                    DrawerItem(Icons.Filled.Terminal, conn.name.ifEmpty { conn.host }) {
-                        onSelectLocal(FsTarget.Ssh(conn))
+    // 最近访问对话框
+    if (showRecent) {
+        AlertDialog(
+            onDismissRequest = { showRecent = false },
+            title = { Text("最近访问") },
+            text = {
+                if (recentPaths.isEmpty()) {
+                    Text("暂无历史记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn {
+                        items(recentPaths) { path ->
+                            RecentPathItem(path) { jumpToRecent(path) }
+                        }
                     }
                 }
-                ftpList.forEach { conn ->
-                    DrawerItem(Icons.Filled.Folder, conn.name.ifEmpty { conn.host }) {
-                        onSelectLocal(FsTarget.Ftp(conn))
-                    }
-                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRecent = false }) { Text("关闭") }
             }
-            
-            // 添加按钮
-            Divider()
-            DrawerItem(Icons.Filled.Add, "添加 FTP") { onAddFtp() }
-            DrawerItem(Icons.Filled.Add, "添加 SSH") { onAddSsh() }
-        }
+        )
     }
 }
 
 @Composable
-private fun DrawerItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(12.dp, 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.width(12.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge)
-    }
-}
-
-@Composable
-private fun FilePanel(
+private fun FilePanelWithRefresh(
     side: String,
     target: FsTarget,
     path: String,
     entries: List<FileEntry>,
     loading: Boolean,
+    isSelectionMode: Boolean,
+    selectedFiles: Set<String>,
+    onRefresh: () -> Unit,
     onNavigate: (String) -> Unit,
     onClick: (FileEntry) -> Unit,
     onLongClick: (FileEntry) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxHeight()) {
-        // 路径栏
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(target.icon(), null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(6.dp))
-            Text(target.label(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(6.dp))
-            Text(
-                path,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            IconButton(onClick = { onNavigate(File(path).parent ?: "/") }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
+    var refreshing by remember { mutableStateOf(false) }
+    
+    SwipeRefresh(
+        state = rememberSwipeRefreshState(isRefreshing = refreshing),
+        onRefresh = {
+            refreshing = true
+            onRefresh()
+            scope.launch {
+                delay(500)
+                refreshing = false
             }
         }
-        Divider(color = MaterialTheme.colorScheme.outlineVariant)
-        
-        if (loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        } else if (entries.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("空目录", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
-                if (path != "/") item { FileRow("..", true, 0, 0, onClick = { onNavigate(File(path).parent ?: "/") }, onLongClick = {}) }
-                items(entries) { entry ->
-                    FileRow(
-                        entry.name, entry.isDirectory, entry.size, entry.modified,
-                        onClick = { if (entry.isDirectory) onNavigate(entry.path) else onClick(entry) },
-                        onLongClick = { onLongClick(entry) }
-                    )
+    ) {
+        Column(modifier = Modifier.fillMaxHeight()) {
+            // 路径栏
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(target.icon(), null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                Text(target.label(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    path,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                IconButton(onClick = { onNavigate(File(path).parent ?: "/") }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
+                }
+            }
+            Divider(color = MaterialTheme.colorScheme.outlineVariant)
+            
+            if (loading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else if (entries.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("空目录", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    if (path != "/") {
+                        item {
+                            FileRow(
+                                name = "..",
+                                isDirectory = true,
+                                size = 0,
+                                modified = 0,
+                                isSelected = false,
+                                onClick = { onNavigate(File(path).parent ?: "/") },
+                                onLongClick = {}
+                            )
+                        }
+                    }
+                    items(entries) { entry ->
+                        FileRow(
+                            name = entry.name,
+                            isDirectory = entry.isDirectory,
+                            size = entry.size,
+                            modified = entry.modified,
+                            isSelected = selectedFiles.contains(entry.path),
+                            onClick = { onClick(entry) },
+                            onLongClick = { onLongClick(entry) }
+                        )
+                    }
                 }
             }
         }
@@ -652,28 +689,64 @@ private fun FileRow(
     isDirectory: Boolean,
     size: Long,
     modified: Long,
+    isSelected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), shape = MaterialTheme.shapes.small),
+            .longClickable(onClick = onLongClick)
+            .then(if (isSelected) Modifier.background(MaterialTheme.colorScheme.primaryContainer) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (isSelected) {
+            Icon(Icons.Filled.CheckCircle, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(8.dp))
+        }
+        
         Icon(
             if (isDirectory) Icons.Filled.Folder else getFileIcon(name),
             contentDescription = null,
             tint = if (isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(28.dp)
         )
+        
         Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
             Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!isDirectory) Text(formatSize(size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        
         if (isDirectory) Icon(Icons.Filled.ChevronRight, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
     }
+}
+
+@Composable
+private fun BookmarkItem(bookmark: BookmarkedPath, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Filled.Bookmark, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(12.dp))
+        Text(bookmark.name, style = MaterialTheme.typography.bodyLarge)
+    }
+    Divider()
+}
+
+@Composable
+private fun RecentPathItem(path: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Filled.RecentActors, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.secondary)
+        Spacer(Modifier.width(12.dp))
+        Text(path, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+    Divider()
 }
 
 private fun getFileIcon(name: String) = when {
