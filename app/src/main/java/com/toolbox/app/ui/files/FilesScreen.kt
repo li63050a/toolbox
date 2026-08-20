@@ -62,21 +62,23 @@ fun FilesScreen(onBack: () -> Unit) {
         loadEntries(rightPath, false)
     }
 
-    ModalBottomSheet(onDismissRequest = { showDrawer = false }, showDialog = showDrawer) {
-        Column(Modifier.padding(16.dp)) {
-            Text("选择存储", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
-            
-            Text("本地存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
-            StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0") {
-                leftPath = "/storage/emulated/0"
-                rightPath = "/storage/emulated/0"
-                showDrawer = false
-            }
-            StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download") {
-                leftPath = "/storage/emulated/0/Download"
-                rightPath = "/storage/emulated/0/Download"
-                showDrawer = false
+    if (showDrawer) {
+        ModalBottomSheet(onDismissRequest = { showDrawer = false }) {
+            Column(Modifier.padding(16.dp)) {
+                Text("选择存储", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                
+                Text("本地存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
+                StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0") {
+                    leftPath = "/storage/emulated/0"
+                    rightPath = "/storage/emulated/0"
+                    showDrawer = false
+                }
+                StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download") {
+                    leftPath = "/storage/emulated/0/Download"
+                    rightPath = "/storage/emulated/0/Download"
+                    showDrawer = false
+                }
             }
         }
     }
