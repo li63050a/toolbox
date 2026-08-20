@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -190,7 +191,6 @@ fun FilesScreen(onBack: () -> Unit) {
                     
                     val sourceClient = when (val s = if (fromSide == "left") leftTarget else rightTarget) {
                         is FsTarget.Ftp -> FtpClient((s as FsTarget.Ftp).cfg).connect().getOrNull()
-                        is FsTarget.Ssh -> null
                         else -> null
                     }
                     
@@ -220,8 +220,8 @@ fun FilesScreen(onBack: () -> Unit) {
                             destClient.completePendingCommand()
                             input.close()
                             
-                            if (actionType == "MOVE") sourceFile.delete()
-                            snackbarHostState.showSnackbar(if (actionType == "MOVE") "已移动" else "已复制")
+                            sourceFile.delete()
+                            snackbarHostState.showSnackbar("已移动")
                             
                             runCatching { destClient.logout() }
                             runCatching { destClient.disconnect() }
@@ -277,8 +277,8 @@ fun FilesScreen(onBack: () -> Unit) {
     }
 
     if (showActionMenu && selectedEntry != null) {
-        val hasRemoteSource = (actionMenuSide == "left" && leftTarget is FsTarget.Ftp) || (actionMenuSide == "right" && rightTarget is FsTarget.Ftp)
         val hasRemoteDest = (actionMenuSide == "left" && rightTarget is FsTarget.Ftp) || (actionMenuSide == "right" && leftTarget is FsTarget.Ftp)
+        val hasRemoteSource = (actionMenuSide == "left" && leftTarget is FsTarget.Ftp) || (actionMenuSide == "right" && rightTarget is FsTarget.Ftp)
         
         AlertDialog(
             onDismissRequest = { showActionMenu = false },
@@ -294,16 +294,10 @@ fun FilesScreen(onBack: () -> Unit) {
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (hasRemoteDest) {
-                        TextButton(onClick = { 
-                            executeTransfer("MOVE", selectedEntry!!, actionMenuSide)
-                            showActionMenu = false
-                        }) { Text("移动", color = MaterialTheme.colorScheme.primary) }
+                        TextButton(onClick = { executeTransfer("MOVE", selectedEntry!!, actionMenuSide); showActionMenu = false }) { Text("移动", color = MaterialTheme.colorScheme.primary) }
                     }
                     if (hasRemoteSource) {
-                        TextButton(onClick = { 
-                            executeTransfer("DOWNLOAD", selectedEntry!!, actionMenuSide)
-                            showActionMenu = false
-                        }) { Text("下载", color = MaterialTheme.colorScheme.primary) }
+                        TextButton(onClick = { executeTransfer("DOWNLOAD", selectedEntry!!, actionMenuSide); showActionMenu = false }) { Text("下载", color = MaterialTheme.colorScheme.primary) }
                     }
                     TextButton(onClick = { showActionMenu = false }) { Text("删除", color = MaterialTheme.colorScheme.error) }
                 }
@@ -354,13 +348,13 @@ fun FilesScreen(onBack: () -> Unit) {
 
 @Composable
 private fun FilePanel(side: String, target: FsTarget, path: String, entries: List<FileEntry>, loading: Boolean, onNavigate: (String) -> Unit, onClick: (FileEntry) -> Unit, onLongClick: (FileEntry) -> Unit) {
-    Column(modifier = Modifier.weight(1f).fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxHeight()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(target.icon(), null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(6.dp))
             Text(target.label(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(6.dp))
-            Text(path, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(path, modifier = Modifier.fillMaxWidth(0.6f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
             IconButton(onClick = { onNavigate(File(path).parent ?: "/") }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
             }
@@ -385,11 +379,11 @@ private fun FilePanel(side: String, target: FsTarget, path: String, entries: Lis
 @Composable
 private fun FileRow(name: String, isDirectory: Boolean, size: Long, modified: Long, onClick: () -> Unit, onLongClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).longClickable(onClick = onLongClick).padding(horizontal = 12.dp, vertical = 10.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = MaterialTheme.shapes.medium),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = MaterialTheme.shapes.medium),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(if (isDirectory) Icons.Filled.Folder else getFileIcon(name), null, tint = if (isDirectory) Color(0xFFFFA000) else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+        Column(modifier = Modifier.fillMaxWidth(0.7f).padding(horizontal = 10.dp)) {
             Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!isDirectory) Text(formatSize(size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
