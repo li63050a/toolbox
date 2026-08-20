@@ -25,34 +25,11 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ConnectWithoutContact
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,8 +40,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.toolbox.app.R
+import com.toolbox.app.log.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.concurrent.thread
 
 private const val TAG = "AdbManager"
 
@@ -75,10 +55,20 @@ enum class AdbTab { DEVICES, FILES, COMMAND, APPS, INFO }
 fun AdbScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val adb = remember { AdbManager(context) }
+    val scope = rememberCoroutineScope()
     var selectedTab by remember { mutableIntStateOf(0) }
     var showConnectDialog by remember { mutableStateOf(false) }
+    var snackbarHostState = remember { SnackbarHostState() }
+
+    fun refreshDevices() {
+        scope.launch(Dispatchers.IO) {
+            val devices = adb.refreshDevices()
+            withContext(Dispatchers.Main) {}
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.adb_title), fontWeight = FontWeight.Bold) },
@@ -89,9 +79,8 @@ fun AdbScreen(onBack: () -> Unit) {
                 },
                 actions = {
                     IconButton(onClick = {
-                        thread {
+                        scope.launch(Dispatchers.IO) {
                             val devices = adb.refreshDevices()
-                            // State refresh is handled per-tab via LaunchedEffect
                         }
                     }) {
                         Icon(Icons.Filled.Cached, stringResource(R.string.adb_refresh))
@@ -128,7 +117,16 @@ fun AdbScreen(onBack: () -> Unit) {
             onDismiss = { showConnectDialog = false },
             onConnect = { host, port ->
                 showConnectDialog = false
-                thread { adb.connectDevice(host, port) }
+                scope.launch(Dispatchers.IO) {
+                    val result = adb.connectDevice(host, port)
+                    withContext(Dispatchers.Main) {
+                        if (result.isSuccess) {
+                            Log.i(TAG, "无线设备已连接")
+                        } else {
+                            Log.e(TAG, "连接失败: ${result.exceptionOrNull()?.message}")
+                        }
+                    }
+                }
             }
         )
     }
@@ -144,6 +142,7 @@ private fun AdbTab.label(context: android.content.Context): String = when (this)
 
 @Composable
 private fun DevicesTab(adb: AdbManager, onConnect: () -> Unit) {
+    val scope = rememberCoroutineScope()
     var devices by remember { mutableStateOf<List<AdbDevice>>(emptyList()) }
     var refreshing by remember { mutableStateOf(false) }
 
@@ -196,7 +195,7 @@ private fun DevicesTab(adb: AdbManager, onConnect: () -> Unit) {
                         isSelected = adb.selectedDevice == device.serial,
                         onSelect = { adb.setSelectedDevice(device.serial) },
                         onDisconnect = {
-                            thread {
+                            scope.launch(Dispatchers.IO) {
                                 adb.disconnectDevice(device.serial)
                                 devices = adb.refreshDevices()
                             }
@@ -219,9 +218,9 @@ private fun DevicesTab(adb: AdbManager, onConnect: () -> Unit) {
         Button(
             onClick = {
                 refreshing = true
-                thread {
+                scope.launch(Dispatchers.IO) {
                     devices = adb.refreshDevices()
-                    refreshing = false
+                    withContext(Dispatchers.Main) { refreshing = false }
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -229,7 +228,7 @@ private fun DevicesTab(adb: AdbManager, onConnect: () -> Unit) {
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
         ) {
             if (refreshing) {
-                LinearProgressIndicator(modifier = Modifier.width(24.dp))
+                CircularProgressIndicator(modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
             } else {
                 Icon(Icons.Filled.Cached, null, modifier = Modifier.size(18.dp))
@@ -279,13 +278,19 @@ private fun FilesTab(adb: AdbManager) {
     var currentPath by remember { mutableStateOf("/sdcard") }
     var files by remember { mutableStateOf<List<AdbFile>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     fun refresh() {
         loading = true
-        thread {
+        errorMessage = null
+        scope.launch(Dispatchers.IO) {
             val result = adb.listFiles(currentPath)
-            files = result.getOrNull() ?: emptyList()
-            loading = false
+            result.fold(
+                onSuccess = { files = it },
+                onFailure = { errorMessage = it.message }
+            )
+            withContext(Dispatchers.Main) { loading = false }
         }
     }
 
@@ -314,6 +319,8 @@ private fun FilesTab(adb: AdbManager) {
         Divider()
         if (loading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else if (errorMessage != null) {
+            Text("错误: $errorMessage", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp))
         } else if (files.isEmpty()) {
             Text(stringResource(R.string.adb_empty_dir), Modifier.align(Alignment.CenterHorizontally), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
@@ -359,15 +366,21 @@ private fun CommandTab(adb: AdbManager) {
     var command by remember { mutableStateOf("ls") }
     var output by remember { mutableStateOf("") }
     var executing by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     fun execute() {
-        if (executing) return
+        if (executing || command.isBlank()) return
         executing = true
         output = ""
-        thread {
+        errorMessage = null
+        scope.launch(Dispatchers.IO) {
             val result = adb.shellCommand(command)
-            output = result.getOrNull() ?: "Error: ${result.exceptionOrNull()?.message}"
-            executing = false
+            result.fold(
+                onSuccess = { output = it },
+                onFailure = { errorMessage = it.message }
+            )
+            withContext(Dispatchers.Main) { executing = false }
         }
     }
 
@@ -388,7 +401,7 @@ private fun CommandTab(adb: AdbManager) {
                 Spacer(Modifier.width(4.dp))
                 Text(stringResource(R.string.adb_execute))
             }
-            OutlinedButton(onClick = { output = "" }, modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = { output = ""; errorMessage = null }, modifier = Modifier.weight(1f)) {
                 Icon(Icons.Filled.Clear, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(stringResource(R.string.adb_clear))
@@ -408,7 +421,9 @@ private fun CommandTab(adb: AdbManager) {
                     }
                 }
                 Divider(modifier = Modifier.padding(vertical = 8.dp))
-                if (output.isEmpty()) {
+                if (errorMessage != null) {
+                    Text("错误: $errorMessage", color = MaterialTheme.colorScheme.error)
+                } else if (output.isEmpty()) {
                     Text(stringResource(R.string.adb_output_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     LazyColumn(modifier = Modifier.height(200.dp)) {
@@ -427,13 +442,28 @@ private fun AppsTab(adb: AdbManager) {
     var apps by remember { mutableStateOf<List<String>>(emptyList()) }
     var search by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
+    fun loadApps() {
         loading = true
-        val result = adb.getAppList()
-        apps = result.getOrNull()?.lineSequence()?.filter { it.startsWith("package:") }?.map { it.substringAfter("package:") }?.toList() ?: emptyList()
-        loading = false
+        errorMessage = null
+        scope.launch(Dispatchers.IO) {
+            val result = adb.getAppList()
+            result.fold(
+                onSuccess = {
+                    apps = result.getOrNull()?.lineSequence()
+                        ?.filter { it.startsWith("package:") }
+                        ?.map { it.substringAfter("package:") }
+                        ?.toList() ?: emptyList()
+                },
+                onFailure = { errorMessage = it.message }
+            )
+            withContext(Dispatchers.Main) { loading = false }
+        }
     }
+
+    LaunchedEffect(Unit) { loadApps() }
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         OutlinedTextField(
@@ -446,6 +476,8 @@ private fun AppsTab(adb: AdbManager) {
         Spacer(Modifier.height(8.dp))
         if (loading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else if (errorMessage != null) {
+            Text("错误: $errorMessage", color = MaterialTheme.colorScheme.error)
         } else {
             val filtered = if (search.isEmpty()) apps else apps.filter { it.contains(search, ignoreCase = true) }
             LazyColumn {
@@ -456,7 +488,19 @@ private fun AppsTab(adb: AdbManager) {
                             Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                                 Text(pkg, style = MaterialTheme.typography.bodyMedium)
                             }
-                            OutlinedButton(onClick = { /* 卸载 */ }) {
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch(Dispatchers.IO) {
+                                        val result = adb.uninstallApp(pkg)
+                                        withContext(Dispatchers.Main) {
+                                            if (result.isSuccess) loadApps()
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Icon(Icons.Filled.Delete, null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
                                 Text(stringResource(R.string.adb_uninstall))
                             }
                         }
@@ -471,16 +515,24 @@ private fun AppsTab(adb: AdbManager) {
 private fun InfoTab(adb: AdbManager) {
     var deviceInfo by remember { mutableStateOf("") }
     var batteryInfo by remember { mutableStateOf("") }
+    var processes by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
+    fun loadInfo() {
         loading = true
-        val infoResult = adb.getDeviceInfo()
-        deviceInfo = infoResult.getOrNull() ?: ""
-        val batteryResult = adb.getBatteryInfo()
-        batteryInfo = batteryResult.getOrNull() ?: ""
-        loading = false
+        scope.launch(Dispatchers.IO) {
+            val infoResult = adb.getDeviceInfo()
+            deviceInfo = infoResult.getOrNull() ?: ""
+            val batteryResult = adb.getBatteryInfo()
+            batteryInfo = batteryResult.getOrNull() ?: ""
+            val procResult = adb.listProcesses()
+            processes = procResult.getOrNull() ?: ""
+            withContext(Dispatchers.Main) { loading = false }
+        }
     }
+
+    LaunchedEffect(Unit) { loadInfo() }
 
     Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (loading) {
@@ -500,6 +552,22 @@ private fun InfoTab(adb: AdbManager) {
                     Text(batteryInfo, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
                 }
             }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text("进程列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(processes, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                }
+            }
+        }
+        Button(
+            onClick = { loadInfo() },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+        ) {
+            Icon(Icons.Filled.Cached, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("刷新")
         }
     }
 }

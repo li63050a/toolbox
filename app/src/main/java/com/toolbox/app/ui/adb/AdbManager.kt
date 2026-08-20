@@ -22,11 +22,6 @@ data class AdbFile(
     val modified: Long
 )
 
-/**
- * Pure TCP ADB protocol client — no adb binary required.
- * Connects to adb host daemon on 127.0.0.1:5037 for device list / connect / disconnect.
- * Sends shell/sync commands directly to device on port 5555.
- */
 class AdbManager(private val context: Context) {
 
     private val log = Log
@@ -38,7 +33,6 @@ class AdbManager(private val context: Context) {
         _selectedDevice = serial
     }
 
-    // ── host:devices ──────────────────────────────────────────────
     fun refreshDevices(): List<AdbDevice> {
         return try {
             val (cmd, data) = sendToHostDaemon("host:devices")
@@ -50,7 +44,6 @@ class AdbManager(private val context: Context) {
         }
     }
 
-    // ── host:connect / host:disconnect ───────────────────────────
     fun connectDevice(host: String, port: Int = 5555): Result<Unit> {
         return try {
             val (cmd, data) = sendToHostDaemon("host:connect:$host:$port")
@@ -74,7 +67,6 @@ class AdbManager(private val context: Context) {
         }
     }
 
-    // ── shell: … ─────────────────────────────────────────────────
     fun shellCommand(cmd: String): Result<String> {
         val target = _selectedDevice?.let { "shell:$it:$cmd" } ?: "shell:$cmd"
         return try {
@@ -101,7 +93,6 @@ class AdbManager(private val context: Context) {
         }
     }
 
-    // ── sync: LIST ───────────────────────────────────────────────
     fun listFiles(path: String): Result<List<AdbFile>> {
         val target = _selectedDevice?.let { "sync:$it:" } ?: "sync:"
         return try {
@@ -117,7 +108,6 @@ class AdbManager(private val context: Context) {
                 val (c, d) = conn.readFrame()
                 when (c) {
                     "DENT" -> {
-                        // d = <mode> SP <size> SP <time> SP <name>\0
                         val nullIdx = d.indexOf('\u0000')
                         val line = if (nullIdx >= 0) d.take(nullIdx) else d
                         val parts = line.split(" ", limit = 4)
@@ -146,14 +136,29 @@ class AdbManager(private val context: Context) {
         }
     }
 
-    // ── convenience helpers ───────────────────────────────────────
+    fun installApk(localPath: String): Result<String> {
+        return try {
+            val result = shellCommand("pm install -r \"$localPath\"")
+            result
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun uninstallApp(pkg: String): Result<String> {
+        return try {
+            shellCommand("pm uninstall $pkg")
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     fun getAppList(): Result<String> = shellCommand("pm list packages -3")
     fun getBatteryInfo(): Result<String> = shellCommand("dumpsys battery")
     fun getDeviceInfo(): Result<String> = shellCommand("getprop")
+    fun listProcesses(): Result<String> = shellCommand("ps")
+    fun listPackages(full: Boolean = false): Result<String> = shellCommand(if (full) "pm list packages" else "pm list packages -3")
 
-    // ── internal ──────────────────────────────────────────────────
-
-    /** Send a command to the adb host daemon (127.0.0.1:5037), return (command, payload). */
     private fun sendToHostDaemon(command: String): Pair<String, String> {
         val sock = Socket("127.0.0.1", 5037).apply { soTimeout = 15_000 }
         return try {
@@ -165,9 +170,7 @@ class AdbManager(private val context: Context) {
         }
     }
 
-    /** Open a direct TCP connection to the ADB device and send the target string. Return (replyCmd, conn). */
     private fun openDeviceConnection(target: String): Pair<String, AdbConnection> {
-        // Parse host:port from the selected device serial or default to localhost:5555
         val deviceSerial = _selectedDevice ?: "127.0.0.1"
         val colonIdx = deviceSerial.indexOf(':')
         val (host, port) = if (colonIdx >= 0) {
@@ -192,17 +195,11 @@ class AdbManager(private val context: Context) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  Low-level ADB connection wrapper
-//  Frame format: 4-byte hex length (ASCII) + 4-byte command (ASCII) + payload
-// ─────────────────────────────────────────────────────────────────
-
 class AdbConnection(internal val id: String, internal val socket: Socket) {
     private val input: InputStream = socket.inputStream
     private val output: OutputStream = socket.outputStream
     internal val closed: Boolean get() = socket.isClosed
 
-    /** Send a full ADB frame (4-byte hex length + 4-byte command + payload). */
     fun sendString(msg: String) {
         val command = msg.take(4)
         val payload = msg.drop(4).toByteArray(Charsets.UTF_8)
@@ -219,7 +216,6 @@ class AdbConnection(internal val id: String, internal val socket: Socket) {
         output.flush()
     }
 
-    /** Read one ADB frame, returns (command, payloadString). */
     fun readFrame(): Pair<String, String> {
         val lenBytes = readFully(4)
         val hexLen = lenBytes.decodeToString()

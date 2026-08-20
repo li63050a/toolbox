@@ -3,7 +3,6 @@ package com.toolbox.app.ui.shizuku
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -12,59 +11,36 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.toolbox.app.R
 import com.toolbox.app.log.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.PrintWriter
+import java.lang.reflect.Method
 
 private const val TAG = "Shizuku"
-
-fun checkRootAvailable(): Boolean {
-    return try {
-        val process = Runtime.getRuntime().exec("su")
-        process.waitFor(100, java.util.concurrent.TimeUnit.MILLISECONDS)
-        process.destroy()
-        true
-    } catch (e: Exception) {
-        false
-    }
-}
-
-fun startShizukuViaRoot(context: Context) {
-    try {
-        val process = Runtime.getRuntime().exec("su")
-        val writer = PrintWriter(process.outputStream)
-        writer.println("sh /data/local/tmp/start.sh")
-        writer.println("exit")
-        writer.flush()
-        process.waitFor()
-    } catch (e: Exception) {
-        Log.e(TAG, "Root 启动失败", e)
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShizukuScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var isRunning by remember { mutableStateOf(false) }
     var hasPermission by remember { mutableStateOf(false) }
     var serverUid by remember { mutableStateOf("") }
     var command by remember { mutableStateOf("id") }
     var output by remember { mutableStateOf("") }
     var executing by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
-    var showInstructions by remember { mutableStateOf(false) }
-    var isRootAvailable by remember { mutableStateOf(false) }
-    var autoStart by remember { mutableStateOf(false) }
-    var rootAutoStart by remember { mutableStateOf(false) }
+    var showAuthDialog by remember { mutableStateOf(false) }
+    var authPkg by remember { mutableStateOf("") }
+    var authResult by remember { mutableStateOf<String?>(null) }
     var snackbarHostState = remember { SnackbarHostState() }
 
     fun checkStatus() {
@@ -72,12 +48,10 @@ fun ShizukuScreen(onBack: () -> Unit) {
             isRunning = Shizuku.pingBinder()
             hasPermission = if (isRunning) Shizuku.checkSelfPermission() == 0 else false
             serverUid = if (isRunning) "uid=${Shizuku.getUid()}" else ""
-            isRootAvailable = checkRootAvailable()
         } catch (e: Exception) {
             isRunning = false
             hasPermission = false
             serverUid = ""
-            isRootAvailable = false
         }
     }
 
@@ -88,16 +62,6 @@ fun ShizukuScreen(onBack: () -> Unit) {
             isRunning = false
             hasPermission = false
             serverUid = ""
-            isRootAvailable = false
-        }
-        
-        try {
-            val pm = context.packageManager
-            val component = android.content.ComponentName(context, ShizukuBootReceiver::class.java)
-            val state = pm.getComponentEnabledSetting(component)
-            autoStart = state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-        } catch (e: Exception) {
-            Log.w(TAG, "检查自启动状态失败")
         }
     }
 
@@ -105,10 +69,10 @@ fun ShizukuScreen(onBack: () -> Unit) {
         if (!isRunning || !hasPermission) return
         executing = true
         output = ""
-        Thread {
+        scope.launch(Dispatchers.IO) {
             try {
                 val clazz = Class.forName("rikka.shizuku.Shizuku")
-                val method = clazz.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
+                val method: Method = clazz.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
                 method.isAccessible = true
                 @Suppress("UNCHECKED_CAST")
                 val process = method.invoke(null, arrayOf("sh", "-c", cmd), emptyArray<String>(), null) as java.lang.Process
@@ -126,13 +90,13 @@ fun ShizukuScreen(onBack: () -> Unit) {
                 Log.e(TAG, "命令执行失败", e)
                 output = "Error: ${e.message}"
             }
-            executing = false
-        }.start()
+            withContext(Dispatchers.Main) { executing = false }
+        }
     }
 
     fun requestPermission() {
         if (isRunning) {
-            Shizuku.addRequestPermissionResultListener(object : rikka.shizuku.Shizuku.OnRequestPermissionResultListener {
+            Shizuku.addRequestPermissionResultListener(object : Shizuku.OnRequestPermissionResultListener {
                 override fun onRequestPermissionResult(requestCode: Int, grantResult: Int) {
                     hasPermission = grantResult == PackageManager.PERMISSION_GRANTED
                 }
@@ -141,117 +105,22 @@ fun ShizukuScreen(onBack: () -> Unit) {
         }
     }
 
-    fun requestRootPermission() {
-        Thread {
-            try {
-                val process = Runtime.getRuntime().exec("su")
-                val writer = PrintWriter(process.outputStream, true)
-                writer.println("id")
-                writer.println("exit")
-                writer.flush()
-                process.waitFor()
-                
-                if (process.exitValue() == 0) {
-                    isRootAvailable = true
-                    startShizukuViaRoot(context)
-                } else {
-                    isRootAvailable = false
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Root 权限申请失败", e)
-                isRootAvailable = false
-            }
-        }.start()
-    }
-
-    fun toggleAutoStart(enabled: Boolean) {
+    fun openShizukuApp() {
         try {
-            val pm = context.packageManager
-            val component = android.content.ComponentName(context, ShizukuBootReceiver::class.java)
-            pm.setComponentEnabledSetting(
-                component,
-                if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP
-            )
-            autoStart = enabled
-        } catch (e: Exception) {
-            Log.e(TAG, "设置自启动失败", e)
-        }
-    }
-
-    // 打开系统自启动设置页面
-    fun openAutoStartSettings() {
-        try {
-            val brand = android.os.Build.BRAND.lowercase()
-            val model = android.os.Build.MODEL.lowercase()
-            val manufacturer = android.os.Build.MANUFACTURER.lowercase()
-            
-            val intent = when {
-                // 小米/红米
-                brand.contains("xiaomi") || brand.contains("redmi") || manufacturer.contains("xiaomi") -> {
-                    Intent("miui.intent.action.APP_PERM_EDITOR").apply {
-                        putExtra("extra_pkgname", context.packageName)
-                    }
-                }
-                // 华为/荣耀
-                brand.contains("huawei") || brand.contains("honor") -> {
-                    Intent().apply {
-                        setClassName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")
-                    }
-                }
-                // OPPO
-                brand.contains("oppo") || manufacturer.contains("oppo") -> {
-                    Intent().apply {
-                        setClassName("com.color.safecenter", "com.color.safecenter.permission.startup.StartupAppListActivity")
-                    }
-                }
-                // vivo
-                brand.contains("vivo") || manufacturer.contains("vivo") -> {
-                    Intent().apply {
-                        setClassName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")
-                    }
-                }
-                // 三星
-                brand.contains("samsung") -> {
-                    Intent().apply {
-                        setClassName("com.samsung.android.sm_cn", "com.samsung.android.sm.ui.appmanagement.AppListDetailActivity")
-                    }
-                }
-                // 魅族
-                brand.contains("meizu") -> {
-                    Intent().apply {
-                        setClassName("com.meizu.safe", "com.meizu.safe.permission.StartupAppListActivity")
-                    }
-                }
-                // 一加
-                brand.contains("oneplus") -> {
-                    Intent().apply {
-                        setClassName("com.oneplus.security", "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity")
-                    }
-                }
-                // 其他品牌 - 尝试通用方法
-                else -> {
-                    Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = android.net.Uri.fromParts("package", context.packageName, null)
-                    }
-                }
+            val intent = Intent().apply {
+                setClassName("moe.shizuku.privileged.api", "moe.shizuku.privileged.api.activity.MainActivity")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         } catch (e: Exception) {
-            Log.e(TAG, "打开自启动设置失败", e)
-            // 回退到应用详情页面
-            try {
-                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = android.net.Uri.fromParts("package", context.packageName, null)
-                }
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-            } catch (e2: Exception) {
-                Log.e(TAG, "无法打开设置", e2)
-            }
+            scope.launch { snackbarHostState.showSnackbar("未安装 Shizuku，请先安装") }
         }
+    }
+
+    fun showGrantDialog(pkg: String) {
+        authPkg = pkg
+        authResult = null
+        showAuthDialog = true
     }
 
     Scaffold(
@@ -262,11 +131,6 @@ fun ShizukuScreen(onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Filled.Settings, null)
                     }
                 }
             )
@@ -309,117 +173,76 @@ fun ShizukuScreen(onBack: () -> Unit) {
                                 Text("申请权限")
                             }
                         }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { openShizukuApp() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                            ) {
+                                Icon(Icons.Filled.OpenInNew, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("打开 Shizuku")
+                            }
+                            OutlinedButton(
+                                onClick = { checkStatus() },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("刷新")
+                            }
+                        }
                     } else {
                         Text(
                             "请先启动 Shizuku 服务",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
-                    }
-                }
-            }
-
-            // Root 权限申请卡片
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            Icons.Filled.Shield,
-                            contentDescription = null,
-                            tint = if (isRootAvailable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Root 权限", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                if (isRootAvailable) "已获取 Root 权限" else "设备支持 Root 或需要申请",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        if (isRootAvailable) {
-                            Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                    
-                    if (!isRootAvailable && !isRunning) {
-                        Spacer(Modifier.height(8.dp))
                         Button(
-                            onClick = { requestRootPermission() },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                        ) {
-                            Icon(Icons.Filled.LockOpen, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("申请 Root 权限")
-                        }
-                    } else if (isRootAvailable) {
-                        Spacer(Modifier.height(8.dp))
-                        Button(
-                            onClick = { startShizukuViaRoot(context) },
+                            onClick = { openShizukuApp() },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
                             Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("使用 Root 启动 Shizuku")
+                            Text("打开 Shizuku 启动服务")
                         }
                     }
                 }
             }
 
-            // 启动选项
-            if (!isRunning && !isRootAvailable) {
-                // ADB 启动
+            // 授权其他应用卡片
+            if (isRunning) {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
-                        Text("通过连接电脑启动 (使用 ADB)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "对于没有 root 的设备需要借助 adb 来启动 Shizuku（需要连接电脑）。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Button(
-                            onClick = { showInstructions = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Filled.Code, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("查看指令")
-                        }
-                    }
-                }
-
-                // 无线调试启动
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("通过无线调试启动", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "在 Android 11 或更高版本上，您可以直接从您的设备启用无线调试并启动 Shizuku。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            Icon(
+                                Icons.Filled.Apps,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
                             )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("授权其他应用", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "为其他应用申请 Shizuku 权限",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        if (hasPermission) {
                             Spacer(Modifier.height(8.dp))
-                            Button(
-                                onClick = { 
-                                    val intent = Intent(android.provider.Settings.ACTION_SETTINGS)
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            OutlinedButton(
+                                onClick = { showGrantDialog(context.packageName) },
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Filled.Security, null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("启动")
+                                Text("管理授权应用")
                             }
                         }
                     }
@@ -472,138 +295,46 @@ fun ShizukuScreen(onBack: () -> Unit) {
         }
     }
 
-    // 查看指令对话框
-    if (showInstructions) {
+    // 授权对话框
+    if (showAuthDialog) {
         AlertDialog(
-            onDismissRequest = { showInstructions = false },
-            title = { Text("查看指令") },
+            onDismissRequest = { showAuthDialog = false },
+            title = { Text("授权其他应用") },
             text = {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Text(
-                        text = "adb shell sh /data/local/tmp/start.sh",
-                        modifier = Modifier.padding(12.dp),
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodyMedium
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = authPkg,
+                        onValueChange = { authPkg = it },
+                        label = { Text("包名") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
                     )
+                    if (authResult != null) {
+                        Text(authResult ?: "", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showInstructions = false }) { Text("发送") }
+                Button(onClick = {
+                    if (authPkg.isEmpty()) return@Button
+                    try {
+                        val intent = Intent().apply {
+                            setClassName("moe.shizuku.privileged.api", "moe.shizuku.privileged.api.activity.PermissionActivity")
+                            putExtra("pkg", authPkg)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                        authResult = "已打开 Shizuku 授权界面"
+                    } catch (e: Exception) {
+                        authResult = "错误: ${e.message}"
+                    }
+                }) {
+                    Text("授权")
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showInstructions = false }) { Text("取消") }
-                TextButton(onClick = { 
-                    val cmd = "adb shell sh /data/local/tmp/start.sh"
-                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Shizuku指令", cmd))
-                    showInstructions = false 
-                }) { Text("复制") }
+                TextButton(onClick = { showAuthDialog = false }) { Text("取消") }
             }
         )
-    }
-
-    // 设置对话框
-    if (showSettings) {
-        AlertDialog(
-            onDismissRequest = { showSettings = false },
-            title = { Text("设置") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // Root 权限
-                    SettingRow(
-                        label = "Root 权限",
-                        description = if (isRootAvailable) "已获取 Root 权限" else "点击申请 Root 权限",
-                        trailing = {
-                            if (isRootAvailable)
-                                AndroidText("已获取", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            else
-                                AndroidText("未获取", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        }
-                    )
-                    
-                    // 开机启动
-                    SettingRow(
-                        label = "开机自启动",
-                        description = "允许应用开机自动启动（需在系统设置中授权）",
-                        trailing = {
-                            Button(
-                                onClick = { openAutoStartSettings() },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
-                                ),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                            ) {
-                                Text("去开启", style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    )
-                    
-                    // 自动申请 Root
-                    SettingRow(
-                        label = "自动申请 Root",
-                        description = "启动时自动申请 Root 权限",
-                        trailing = {
-                            Switch(
-                                checked = rootAutoStart,
-                                onCheckedChange = { rootAutoStart = it }
-                            )
-                        }
-                    )
-                    
-                    // 语言
-                    SettingRow(
-                        label = "语言",
-                        description = "跟随系统"
-                    )
-                    
-                    // 深色主题
-                    SettingRow(
-                        label = "深色主题",
-                        description = "跟随系统"
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showSettings = false }) { Text("关闭") }
-            }
-        )
-    }
-}
-
-@Composable
-private fun SettingRow(
-    label: String,
-    description: String,
-    trailing: @Composable () -> Unit = {}
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
-            Text(description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(Modifier.width(8.dp))
-        trailing()
-    }
-    Divider()
-}
-
-@Composable
-private fun AndroidText(text: String, style: androidx.compose.ui.text.TextStyle, color: androidx.compose.ui.graphics.Color) {
-    Text(text, style = style, color = color)
-}
-
-class ShizukuBootReceiver : android.content.BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == android.content.Intent.ACTION_BOOT_COMPLETED) {
-            Log.i(TAG, "开机自启动 Shizuku")
-        }
     }
 }
