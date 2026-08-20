@@ -15,7 +15,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.swipeRefresh
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -126,14 +125,6 @@ fun FilesScreen(onBack: () -> Unit) {
     // Shizuku 状态
     var shizukuRunning by remember { mutableStateOf(false) }
     var shizukuPermission by remember { mutableStateOf(false) }
-
-    // 权限启动器
-    val runtimePermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> 
-        loadFiles(leftTarget, leftPath, true)
-        loadFiles(rightTarget, rightPath, false) 
-    }
 
     // Shizuku 状态监听
     LaunchedEffect(Unit) {
@@ -253,6 +244,13 @@ fun FilesScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    val runtimePermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        loadFiles(leftTarget, leftPath, true)
+        loadFiles(rightTarget, rightPath, false)
     }
 
     LaunchedEffect(leftTarget, leftPath) { loadFiles(leftTarget, leftPath, true) }
@@ -604,79 +602,74 @@ private fun FilePanelWithRefresh(
     onLongClick: (FileEntry) -> Unit
 ) {
     var refreshing by remember { mutableStateOf(false) }
-    
-    SwipeRefresh(
-        state = rememberSwipeRefreshState(isRefreshing = refreshing),
-        onRefresh = {
-            refreshing = true
-            onRefresh()
-            scope.launch {
-                delay(500)
-                refreshing = false
+
+    Column(modifier = Modifier.fillMaxHeight()) {
+        // 路径栏
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(target.icon(), null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(6.dp))
+            Text(target.label(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                path,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            IconButton(onClick = { onNavigate(File(path).parent ?: "/") }) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
+            }
+            if (refreshing) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+            } else {
+                IconButton(onClick = { refreshing = true; onRefresh(); refreshing = false }) {
+                    Icon(Icons.Filled.Refresh, "刷新")
+                }
             }
         }
-    ) {
-        Column(modifier = Modifier.fillMaxHeight()) {
-            // 路径栏
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(target.icon(), null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(6.dp))
-                Text(target.label(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    path,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                IconButton(onClick = { onNavigate(File(path).parent ?: "/") }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
-                }
+        Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        if (loading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
             }
-            Divider(color = MaterialTheme.colorScheme.outlineVariant)
-            
-            if (loading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else if (entries.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("空目录", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 4.dp)
-                ) {
-                    if (path != "/") {
-                        item {
-                            FileRow(
-                                name = "..",
-                                isDirectory = true,
-                                size = 0,
-                                modified = 0,
-                                isSelected = false,
-                                onClick = { onNavigate(File(path).parent ?: "/") },
-                                onLongClick = {}
-                            )
-                        }
-                    }
-                    items(entries) { entry ->
+        } else if (entries.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("空目录", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(vertical = 4.dp)
+            ) {
+                if (path != "/") {
+                    item {
                         FileRow(
-                            name = entry.name,
-                            isDirectory = entry.isDirectory,
-                            size = entry.size,
-                            modified = entry.modified,
-                            isSelected = selectedFiles.contains(entry.path),
-                            onClick = { onClick(entry) },
-                            onLongClick = { onLongClick(entry) }
+                            name = "..",
+                            isDirectory = true,
+                            size = 0,
+                            modified = 0,
+                            isSelected = false,
+                            onClick = { onNavigate(File(path).parent ?: "/") },
+                            onLongClick = {}
                         )
                     }
+                }
+                items(entries) { entry ->
+                    FileRow(
+                        name = entry.name,
+                        isDirectory = entry.isDirectory,
+                        size = entry.size,
+                        modified = entry.modified,
+                        isSelected = selectedFiles.contains(entry.path),
+                        onClick = { onClick(entry) },
+                        onLongClick = { onLongClick(entry) }
+                    )
                 }
             }
         }
@@ -697,7 +690,6 @@ private fun FileRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .longClickable(onClick = onLongClick)
             .then(if (isSelected) Modifier.background(MaterialTheme.colorScheme.primaryContainer) else Modifier)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
