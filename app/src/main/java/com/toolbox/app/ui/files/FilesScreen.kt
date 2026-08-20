@@ -71,10 +71,6 @@ sealed interface FsTarget {
     }
 }
 
-data class TransferAction(val type: TransferType, val entry: FileEntry, val fromSide: String) {
-    enum class TransferType { DOWNLOAD, MOVE, COPY }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(onBack: () -> Unit) {
@@ -99,7 +95,7 @@ fun FilesScreen(onBack: () -> Unit) {
 
     val runtimePermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> refreshFiles(leftTarget, leftPath, true); refreshFiles(rightTarget, rightPath, false) }
+    ) { _ -> loadFiles(leftTarget, leftPath, true); loadFiles(rightTarget, rightPath, false) }
 
     fun requestPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -115,160 +111,126 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     }
 
-    fun loadLocalFiles(path: String, isLeft: Boolean) {
-        thread {
-            val entries = try {
-                val dir = File(path)
-                if (!dir.exists() || !dir.isDirectory) emptyList()
-                else dir.listFiles()?.filter { it.name != "." && it.name != ".." }
-                    ?.map { f ->
-                        FileEntry(
-                            path = f.absolutePath,
-                            name = f.name,
-                            isDirectory = f.isDirectory,
-                            size = if (f.isFile) f.length() else 0L,
-                            modified = f.lastModified()
-                        )
+    fun loadFiles(target: FsTarget, path: String, isLeft: Boolean) {
+        when (target) {
+            is FsTarget.Local -> {
+                thread {
+                    val entries = try {
+                        val dir = File(path)
+                        if (!dir.exists() || !dir.isDirectory) emptyList()
+                        else dir.listFiles()?.filter { it.name != "." && it.name != ".." }
+                            ?.map { f ->
+                                FileEntry(
+                                    path = f.absolutePath,
+                                    name = f.name,
+                                    isDirectory = f.isDirectory,
+                                    size = if (f.isFile) f.length() else 0L,
+                                    modified = f.lastModified()
+                                )
+                            }
+                            ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                            ?: emptyList()
+                    } catch (e: Exception) {
+                        emptyList()
                     }
-                    ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
-                    ?: emptyList()
-            } catch (e: Exception) {
-                emptyList()
+                    if (isLeft) leftEntries = entries else rightEntries = entries
+                }.start()
             }
-            if (isLeft) leftEntries = entries else rightEntries = entries
-        }.start()
-    }
-
-    fun loadRemoteFiles(target: FsTarget, path: String, isLeft: Boolean) {
-        if (isLeft) leftLoading = true else rightLoading = true
-        scope.launch(Dispatchers.IO) {
-            try {
-                val entries: List<FileEntry>? = when (target) {
-                    is FsTarget.Ssh -> {
-                        SshEngine(target.cfg).connect().getOrNull()?.let { session ->
+            is FsTarget.Ssh -> {
+                if (isLeft) leftLoading = true else rightLoading = true
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val entries = SshEngine(target.cfg).connect().getOrNull()?.let { session ->
                             SftpFileOps(context, session, target.cfg.name.ifEmpty { target.cfg.host }).list(path).getOrNull()
+                        } ?: emptyList()
+                        withContext(Dispatchers.Main) {
+                            if (isLeft) { leftEntries = entries; leftLoading = false }
+                            else { rightEntries = entries; rightLoading = false }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            if (isLeft) leftLoading = false else rightLoading = false
                         }
                     }
-                    is FsTarget.Ftp -> {
-                        FtpClient(target.cfg).connect().getOrNull()?.let { client ->
+                }
+            }
+            is FsTarget.Ftp -> {
+                if (isLeft) leftLoading = true else rightLoading = true
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val entries = FtpClient(target.cfg).connect().getOrNull()?.let { client ->
                             client.controlEncoding = "UTF-8"
                             FtpFileOps(context, client, target.cfg.name.ifEmpty { target.cfg.host }).list(path).getOrNull()
+                        } ?: emptyList()
+                        withContext(Dispatchers.Main) {
+                            if (isLeft) { leftEntries = entries; leftLoading = false }
+                            else { rightEntries = entries; rightLoading = false }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            if (isLeft) leftLoading = false else rightLoading = false
                         }
                     }
-                    else -> null
-                }
-                withContext(Dispatchers.Main) {
-                    if (isLeft) { leftEntries = entries ?: emptyList(); leftLoading = false }
-                    else { rightEntries = entries ?: emptyList(); rightLoading = false }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    if (isLeft) leftLoading = false else rightLoading = false
                 }
             }
         }
     }
 
-    fun refreshFiles(target: FsTarget, path: String, isLeft: Boolean) {
-        when (target) {
-            is FsTarget.Local -> loadLocalFiles(path, isLeft)
-            else -> loadRemoteFiles(target, path, isLeft)
-        }
-    }
+    LaunchedEffect(leftTarget, leftPath) { loadFiles(leftTarget, leftPath, true) }
+    LaunchedEffect(rightTarget, rightPath) { loadFiles(rightTarget, rightPath, false) }
 
-    LaunchedEffect(leftTarget, leftPath) { refreshFiles(leftTarget, leftPath, true) }
-    LaunchedEffect(rightTarget, rightPath) { refreshFiles(rightTarget, rightPath, false) }
-
-    fun executeTransfer(action: TransferAction) {
+    fun executeTransfer(actionType: String, entry: FileEntry, fromSide: String) {
         scope.launch {
-            val targetPath = if (action.fromSide == "left") rightPath else leftPath
+            val targetPath = if (fromSide == "left") rightPath else leftPath
             try {
-                when (action.type) {
-                    TransferAction.TransferType.DOWNLOAD -> {
-                        val localPath = "${getStoragePath()}/Download/${action.entry.name}"
-                        val localFile = File(localPath)
-                        localFile.parentFile?.mkdirs()
-                        
-                        val sourceClient = when (val s = if (action.fromSide == "left") leftTarget else rightTarget) {
-                            is FsTarget.Ftp -> FtpClient((s as FsTarget.Ftp).cfg).connect().getOrNull()
-                            is FsTarget.Ssh -> SshEngine((s as FsTarget.Ssh).cfg).connect().getOrNull()
-                            else -> null
-                        }
-                        
-                        if (sourceClient != null) {
-                            val input = when (sourceClient) {
-                                is org.apache.commons.net.ftp.FTPClient -> {
-                                    sourceClient.controlEncoding = "UTF-8"
-                                    sourceClient.retrieveFileStream(action.entry.path)
-                                }
-                                else -> null
-                            }
-                            
-                            if (input != null) {
-                                localFile.outputStream().use { out ->
-                                    input.copyTo(out)
-                                }
-                                when (sourceClient) {
-                                    is org.apache.commons.net.ftp.FTPClient -> sourceClient.completePendingCommand()
-                                }
-                                runCatching { sourceClient.logout() }
-                                runCatching { sourceClient.disconnect() }
-                                snackbarHostState.showSnackbar("已下载到: $localPath")
-                            }
-                        }
+                if (actionType == "DOWNLOAD") {
+                    val localPath = "${getStoragePath()}/Download/${entry.name}"
+                    val localFile = File(localPath)
+                    localFile.parentFile?.mkdirs()
+                    
+                    val sourceClient = when (val s = if (fromSide == "left") leftTarget else rightTarget) {
+                        is FsTarget.Ftp -> FtpClient((s as FsTarget.Ftp).cfg).connect().getOrNull()
+                        is FsTarget.Ssh -> null
+                        else -> null
                     }
-                    TransferAction.TransferType.MOVE, TransferAction.TransferType.COPY -> {
-                        val sourceClient = when (val s = if (action.fromSide == "left") leftTarget else rightTarget) {
-                            is FsTarget.Ftp -> FtpClient((s as FsTarget.Ftp).cfg).connect().getOrNull()
-                            is FsTarget.Ssh -> SshEngine((s as FsTarget.Ssh).cfg).connect().getOrNull()
-                            else -> null
+                    
+                    if (sourceClient != null) {
+                        val input = sourceClient.retrieveFileStream(entry.path)
+                        if (input != null) {
+                            localFile.outputStream().use { out -> input.copyTo(out) }
+                            sourceClient.completePendingCommand()
                         }
-                        
-                        val destClient = when (val d = if (action.fromSide == "left") rightTarget else leftTarget) {
+                        runCatching { sourceClient.logout() }
+                        runCatching { sourceClient.disconnect() }
+                        snackbarHostState.showSnackbar("已下载到: $localPath")
+                    }
+                } else if (actionType == "MOVE") {
+                    val sourceFile = File(entry.path)
+                    if (sourceFile.exists()) {
+                        val destClient = when (val d = if (fromSide == "left") rightTarget else leftTarget) {
                             is FsTarget.Ftp -> FtpClient((d as FsTarget.Ftp).cfg).connect().getOrNull()
-                            is FsTarget.Ssh -> SshEngine((d as FsTarget.Ssh).cfg).connect().getOrNull()
                             else -> null
                         }
                         
-                        if (sourceClient != null && destClient != null) {
-                            val localFile = File(action.entry.path)
-                            if (localFile.exists()) {
-                                val destPath = when (destClient) {
-                                    is org.apache.commons.net.ftp.FTPClient -> {
-                                        destClient.controlEncoding = "UTF-8"
-                                        "${targetPath}/${action.entry.name}"
-                                    }
-                                    else -> "$targetPath/${action.entry.name}"
-                                }
-                                
-                                val input = localFile.inputStream()
-                                when (destClient) {
-                                    is org.apache.commons.net.ftp.FTPClient -> {
-                                        destClient.storeFileStream(destPath)?.use { out ->
-                                            input.copyTo(out)
-                                        }
-                                        destClient.completePendingCommand()
-                                    }
-                                }
-                                input.close()
-                                
-                                if (action.type == TransferAction.TransferType.MOVE) {
-                                    localFile.delete()
-                                }
-                                
-                                snackbarHostState.showSnackbar(if (action.type == TransferAction.TransferType.MOVE) "已移动" else "已复制")
-                            }
+                        if (destClient != null) {
+                            destClient.controlEncoding = "UTF-8"
+                            val destPath = "${targetPath}/${entry.name}"
+                            val input = sourceFile.inputStream()
+                            destClient.storeFileStream(destPath)?.use { out -> input.copyTo(out) }
+                            destClient.completePendingCommand()
+                            input.close()
                             
-                            runCatching { sourceClient.logout() }
-                            runCatching { sourceClient.disconnect() }
+                            if (actionType == "MOVE") sourceFile.delete()
+                            snackbarHostState.showSnackbar(if (actionType == "MOVE") "已移动" else "已复制")
+                            
                             runCatching { destClient.logout() }
                             runCatching { destClient.disconnect() }
                         }
                     }
                 }
                 
-                refreshFiles(leftTarget, leftPath, true)
-                refreshFiles(rightTarget, rightPath, false)
+                loadFiles(leftTarget, leftPath, true)
+                loadFiles(rightTarget, rightPath, false)
             } catch (e: Exception) {
                 snackbarHostState.showSnackbar("操作失败: ${e.message}")
             }
@@ -315,8 +277,8 @@ fun FilesScreen(onBack: () -> Unit) {
     }
 
     if (showActionMenu && selectedEntry != null) {
-        val hasRemote = (actionMenuSide == "left" && leftTarget !is FsTarget.Local) || (actionMenuSide == "right" && rightTarget !is FsTarget.Local)
-        val needUpload = (actionMenuSide == "left" && rightTarget !is FsTarget.Local) || (actionMenuSide == "right" && leftTarget !is FsTarget.Local)
+        val hasRemoteSource = (actionMenuSide == "left" && leftTarget is FsTarget.Ftp) || (actionMenuSide == "right" && rightTarget is FsTarget.Ftp)
+        val hasRemoteDest = (actionMenuSide == "left" && rightTarget is FsTarget.Ftp) || (actionMenuSide == "right" && leftTarget is FsTarget.Ftp)
         
         AlertDialog(
             onDismissRequest = { showActionMenu = false },
@@ -331,17 +293,17 @@ fun FilesScreen(onBack: () -> Unit) {
             confirmButton = { Button(onClick = { showActionMenu = false }) { Text("关闭") } },
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (hasRemote) {
+                    if (hasRemoteDest) {
                         TextButton(onClick = { 
-                            executeTransfer(TransferAction(TransferAction.TransferType.DOWNLOAD, selectedEntry!!, actionMenuSide))
-                            showActionMenu = false
-                        }) { Text("下载", color = MaterialTheme.colorScheme.primary) }
-                    }
-                    if (needUpload) {
-                        TextButton(onClick = { 
-                            executeTransfer(TransferAction(TransferAction.TransferType.MOVE, selectedEntry!!, actionMenuSide))
+                            executeTransfer("MOVE", selectedEntry!!, actionMenuSide)
                             showActionMenu = false
                         }) { Text("移动", color = MaterialTheme.colorScheme.primary) }
+                    }
+                    if (hasRemoteSource) {
+                        TextButton(onClick = { 
+                            executeTransfer("DOWNLOAD", selectedEntry!!, actionMenuSide)
+                            showActionMenu = false
+                        }) { Text("下载", color = MaterialTheme.colorScheme.primary) }
                     }
                     TextButton(onClick = { showActionMenu = false }) { Text("删除", color = MaterialTheme.colorScheme.error) }
                 }
@@ -383,47 +345,17 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     ) { padding ->
         Row(Modifier.fillMaxSize().padding(padding)) {
-            FilePanel(
-                side = "左",
-                target = leftTarget,
-                path = leftPath,
-                entries = leftEntries,
-                loading = leftLoading,
-                onNavigate = { leftPath = it },
-                onClick = { selectedEntry = it },
-                onLongClick = { selectedEntry = it; actionMenuSide = "left"; showActionMenu = true }
-            )
+            FilePanel("左", leftTarget, leftPath, leftEntries, leftLoading, { leftPath = it }, { selectedEntry = it }, { selectedEntry = it; actionMenuSide = "left"; showActionMenu = true })
             VerticalDivider(Modifier.fillMaxHeight().width(1.dp))
-            FilePanel(
-                side = "右",
-                target = rightTarget,
-                path = rightPath,
-                entries = rightEntries,
-                loading = rightLoading,
-                onNavigate = { rightPath = it },
-                onClick = { selectedEntry = it },
-                onLongClick = { selectedEntry = it; actionMenuSide = "right"; showActionMenu = true }
-            )
+            FilePanel("右", rightTarget, rightPath, rightEntries, rightLoading, { rightPath = it }, { selectedEntry = it }, { selectedEntry = it; actionMenuSide = "right"; showActionMenu = true })
         }
     }
 }
 
 @Composable
-private fun FilePanel(
-    side: String,
-    target: FsTarget,
-    path: String,
-    entries: List<FileEntry>,
-    loading: Boolean,
-    onNavigate: (String) -> Unit,
-    onClick: (FileEntry) -> Unit,
-    onLongClick: (FileEntry) -> Unit
-) {
+private fun FilePanel(side: String, target: FsTarget, path: String, entries: List<FileEntry>, loading: Boolean, onNavigate: (String) -> Unit, onClick: (FileEntry) -> Unit, onLongClick: (FileEntry) -> Unit) {
     Column(modifier = Modifier.weight(1f).fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(target.icon(), null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(6.dp))
             Text(target.label(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
@@ -441,20 +373,9 @@ private fun FilePanel(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("空目录", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
-                if (path != "/") {
-                    item {
-                        FileRow(name = "..", isDirectory = true, size = 0, modified = 0, onClick = { onNavigate(File(path).parent ?: "/") }, onLongClick = {})
-                    }
-                }
+                if (path != "/") item { FileRow("..", true, 0, 0, onClick = { onNavigate(File(path).parent ?: "/") }, onLongClick = {}) }
                 items(entries) { entry ->
-                    FileRow(
-                        name = entry.name,
-                        isDirectory = entry.isDirectory,
-                        size = entry.size,
-                        modified = entry.modified,
-                        onClick = { if (entry.isDirectory) onNavigate(entry.path) else onClick(entry) },
-                        onLongClick = { onLongClick(entry) }
-                    )
+                    FileRow(entry.name, entry.isDirectory, entry.size, entry.modified, onClick = { if (entry.isDirectory) onNavigate(entry.path) else onClick(entry) }, onLongClick = { onLongClick(entry) })
                 }
             }
         }
@@ -462,14 +383,7 @@ private fun FilePanel(
 }
 
 @Composable
-private fun FileRow(
-    name: String,
-    isDirectory: Boolean,
-    size: Long,
-    modified: Long,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
+private fun FileRow(name: String, isDirectory: Boolean, size: Long, modified: Long, onClick: () -> Unit, onLongClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).longClickable(onClick = onLongClick).padding(horizontal = 12.dp, vertical = 10.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = MaterialTheme.shapes.medium),
         verticalAlignment = Alignment.CenterVertically
@@ -491,9 +405,6 @@ private fun getFileIcon(name: String) = when {
     name.endsWith(".zip", true) || name.endsWith(".rar", true) || name.endsWith(".7z", true) -> Icons.Filled.Compress
     name.endsWith(".txt", true) || name.endsWith(".md", true) -> Icons.Filled.Description
     name.endsWith(".apk", true) -> Icons.Filled.Android
-    name.endsWith(".doc", true) || name.endsWith(".docx", true) -> Icons.Filled.Description
-    name.endsWith(".xls", true) || name.endsWith(".xlsx", true) -> Icons.Filled.TableChart
-    name.endsWith(".ppt", true) || name.endsWith(".pptx", true) -> Icons.Filled.Slide
     else -> Icons.AutoMirrored.Filled.InsertDriveFile
 }
 
