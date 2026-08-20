@@ -52,7 +52,7 @@ fun HomeScreen(onOpen: (String) -> Unit) {
         val w = configuration.screenWidthDp * 2f / 5f
         Modifier.width(w.dp)
     } else {
-        Modifier.fillMaxSize()
+        Modifier.width(280.dp)
     }
 
     ModalNavigationDrawer(
