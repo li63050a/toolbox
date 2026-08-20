@@ -5,7 +5,6 @@ import android.net.Uri
 import com.toolbox.app.ui.filebrowser.FileEntry
 import com.toolbox.app.ui.filebrowser.FileOps
 import rikka.shizuku.Shizuku
-import rikka.shizuku.ShizukuProvider
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
@@ -23,10 +22,10 @@ class ShizukuFileOps(private val context: Context) : FileOps {
         if (Shizuku.checkSelfPermission() != 0) return Result.failure(Exception("Shizuku 权限未授权"))
         
         val cmd = "ls -la \"$path\" 2>/dev/null | grep -v '^total'"
-        val output = executeCommand(cmd) ?: return emptyList()
+        val output = executeCommand(cmd) ?: return@runCatching emptyList()
         
-        output.split("\n").filter { it.isNotEmpty() }
-            .drop(1) // 跳过 total 行
+        val entries = output.split("\n").filter { it.isNotEmpty() }
+            .drop(1)
             .mapNotNull { line ->
                 try {
                     val parts = line.split(Regex("\\s+"))
@@ -51,6 +50,8 @@ class ShizukuFileOps(private val context: Context) : FileOps {
             }
             .filter { it.name != "." && it.name != ".." }
             .sortedBy { !it.isDirectory }
+        
+        Result.success(entries)
     }
 
     override suspend fun mkdir(path: String): Result<Unit> = runCatching {
@@ -71,13 +72,10 @@ class ShizukuFileOps(private val context: Context) : FileOps {
     }
 
     override suspend fun download(remotePath: String, localUri: Uri, progress: (Float) -> Unit): Result<Unit> = runCatching {
-        if (!isRunning() || Shizuku.checkSelfPermission() != 0) return Result.failure(Exception("Shizuku 未授权"))
-        // Shizuku 模式下无法直接下载文件到 URI，需要特殊处理
         TODO("Shizuku 下载功能待实现")
     }
 
     override suspend fun upload(remoteDir: String, localUri: Uri, progress: (Float) -> Unit): Result<Unit> = runCatching {
-        if (!isRunning() || Shizuku.checkSelfPermission() != 0) return Result.failure(Exception("Shizuku 未授权"))
         TODO("Shizuku 上传功能待实现")
     }
 
@@ -99,7 +97,6 @@ class ShizukuFileOps(private val context: Context) : FileOps {
             val service = android.os.ServiceManager.getService("shizuku")
             if (service == null) return null
             
-            // 使用反射调用 Shizuku 的私有方法
             val clazz = Class.forName("rikka.shizuku.Shizuku")
             val method = clazz.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             method.isAccessible = true
