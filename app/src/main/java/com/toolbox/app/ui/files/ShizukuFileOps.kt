@@ -22,9 +22,9 @@ class ShizukuFileOps(private val context: Context) : FileOps {
         if (Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 权限未授权")
         
         val cmd = "ls -la \"$path\" 2>/dev/null | grep -v '^total'"
-        val output = executeCommand(cmd) ?: emptyList()
+        val entries = executeCommand(cmd, path) ?: emptyList()
         
-        output.filter { it.name != "." && it.name != ".." }
+        entries.filter { it.name != "." && it.name != ".." }
             .sortedBy { !it.isDirectory }
     }
 
@@ -65,7 +65,7 @@ class ShizukuFileOps(private val context: Context) : FileOps {
         Shizuku.requestPermission(0)
     }
 
-    private fun executeCommand(cmd: String): List<FileEntry>? {
+    private fun executeCommand(cmd: String, currentPath: String): List<FileEntry>? {
         try {
             val binder = Shizuku.getBinder() ?: return null
             if (binder == null) return null
@@ -98,7 +98,7 @@ class ShizukuFileOps(private val context: Context) : FileOps {
                     
                     entries.add(
                         FileEntry(
-                            path = if (isDir && !name.endsWith("/")) "$path$name/" else "$path$name",
+                            path = if (isDir && !name.endsWith("/")) "$currentPath$name/" else "$currentPath$name",
                             name = name,
                             isDirectory = isDir,
                             size = size,
