@@ -8,6 +8,7 @@ import com.toolbox.app.data.SettingsRepository
 import com.toolbox.app.ui.about.AboutScreen
 import com.toolbox.app.ui.decibel.DecibelScreen
 import com.toolbox.app.ui.downloader.DownloaderScreen
+import com.toolbox.app.ui.easytier.ui.EasyTierScreen
 import com.toolbox.app.ui.files.FilesScreen
 import com.toolbox.app.ui.ftp.FtpHomeScreen
 import com.toolbox.app.ui.home.HomeScreen
@@ -23,6 +24,7 @@ object Routes {
     const val FILES = "files"
     const val DECIBEL = "decibel"
     const val DOWNLOAD = "download"
+    const val EASYTIER = "easytier"
     const val SSH = "ssh"
     const val VPN = "vpn"
     const val SHIZUKU = "shizuku"
@@ -40,6 +42,7 @@ fun App(repo: SettingsRepository) {
         composable(Routes.FILES) { FilesScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.DECIBEL) { DecibelScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.DOWNLOAD) { DownloaderScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.EASYTIER) { EasyTierScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SSH) { SshHomeScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.VPN) { VpnScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SHIZUKU) { ShizukuScreen(onBack = { navController.popBackStack() }) }

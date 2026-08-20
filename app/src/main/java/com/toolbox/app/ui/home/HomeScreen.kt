@@ -30,6 +30,7 @@ private data class Feature(
 
 private val features = listOf(
     Feature(Routes.FILES, R.string.home_files_title, R.string.home_files_desc, Icons.Filled.FolderOpen),
+    Feature(Routes.EASYTIER, R.string.home_easytier_title, R.string.home_easytier_desc, Icons.Filled.NetworkCheck),
     Feature(Routes.SSH, R.string.home_ssh_title, R.string.home_ssh_desc, Icons.Filled.Terminal),
     Feature(Routes.SHIZUKU, R.string.home_shizuku_title, R.string.home_shizuku_desc, Icons.Filled.Shield),
     Feature(Routes.VPN, R.string.home_vpn_title, R.string.home_vpn_desc, Icons.Filled.Dns),
@@ -73,6 +74,7 @@ fun HomeScreen(onOpen: (String) -> Unit) {
                     item { NavItem(Icons.Filled.Terminal, "SSH终端", Routes.SSH) { scope.launch { drawerState.close() }; onOpen(Routes.SSH) } }
                     item { NavItem(Icons.Filled.Dns, "VPN代理", Routes.VPN) { scope.launch { drawerState.close() }; onOpen(Routes.VPN) } }
                     item { NavItem(Icons.Filled.Shield, "Shizuku", Routes.SHIZUKU) { scope.launch { drawerState.close() }; onOpen(Routes.SHIZUKU) } }
+                    item { NavItem(Icons.Filled.NetworkCheck, "EasyTier组网", Routes.EASYTIER) { scope.launch { drawerState.close() }; onOpen(Routes.EASYTIER) } }
                     
                     item { Text("文件工具", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(16.dp, 8.dp)) }
                     item { NavItem(Icons.Filled.FolderOpen, "文件管理器", Routes.FILES) { scope.launch { drawerState.close() }; onOpen(Routes.FILES) } }
