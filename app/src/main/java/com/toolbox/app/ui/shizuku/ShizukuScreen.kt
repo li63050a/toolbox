@@ -439,7 +439,7 @@ fun ShizukuScreen(onBack: () -> Unit) {
                         label = "黑色夜间主题",
                         description = "当夜间模式启用时使用纯黑色主题",
                         trailing = {
-                            if (isSystemInDarkTheme()) 
+                            if (LocalContext.current.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES) 
                                 AndroidText("关闭", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                             else 
                                 AndroidText("开启", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
