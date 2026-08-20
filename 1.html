@@ -1,0 +1,443 @@
+为了让 UI 看起来更像真实的应用，我对代码做了以下“美化”升级：
+
+1. 视觉细节优化：精确提取了 MT 管理器的蓝色（#2196F3）和黄色（#FDD835）作为主色调，文件夹图标增加了立体阴影，输入框增加了聚焦底边动画。
+2. 交互动效增强：侧边栏滑出、开关切换、下拉菜单的展开都加入了平滑的 transition 动效，高亮选中状态更自然。
+3. 面板去冗余美化：侧边栏二级子菜单（图10）完全复刻，并剔除了 (VIP) 后缀；增加了一个浮动的背景遮罩，点击空白处自动收起。
+4. 精细化排版：顶部栏路径居中，底部工具栏符号美化，文件列表日期字体大小优化，视觉上更加整洁。
+
+你可以直接复制以下完整代码，保存为 .html 文件，在手机或电脑浏览器中打开测试。代码内容本身已经非常结构化，也能直接发给 AI 阅读。
+
+```html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MT管理器 UI 完整演示</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body { background-color: #f0f2f5; color: #333; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+        
+        /* 核心配色 */
+        :root { --primary-blue: #2196F3; --primary-yellow: #FDD835; --icon-blue: #1E88E5; --bg-gray: #f5f5f5; }
+
+        /* 顶部导航栏 */
+        .top-bar { background: var(--primary-blue); color: white; height: 56px; display: flex; align-items: center; padding: 0 16px; flex-shrink: 0; position: relative; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        .top-bar .icon { font-size: 22px; cursor: pointer; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; transition: background 0.2s; border-radius: 50%; }
+        .top-bar .icon:active { background: rgba(255,255,255,0.15); }
+        .top-bar .title-area { flex: 1; text-align: center; display: flex; flex-direction: column; justify-content: center; line-height: 1.2; }
+        .top-bar .path { font-size: 15px; font-weight: 500; letter-spacing: 0.5px; }
+        .top-bar .sub-info { font-size: 10px; opacity: 0.75; }
+
+        /* 文件管理器主界面 (双栏) */
+        .file-manager { flex: 1; display: flex; overflow: hidden; position: relative; background: white; }
+        .pane { flex: 1; overflow-y: auto; background: white; border-right: 1px solid #e0e0e0; }
+        .pane:last-child { border-right: none; }
+        .pane::-webkit-scrollbar { width: 2px; background: transparent; }
+        .pane::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+
+        /* 模拟 Android 文件夹图标 */
+        .file-item { display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background 0.15s; }
+        .file-item:active { background: #E3F2FD; }
+        .file-item.selected { background: #FDE29A; }
+        
+        .file-icon { width: 34px; height: 34px; background: var(--icon-blue); border-radius: 4px; margin-right: 14px; position: relative; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+        .file-icon::after { content: ''; position: absolute; top: 0; right: 0; width: 10px; height: 10px; background: white; border-bottom-left-radius: 4px; }
+        
+        .file-info { display: flex; flex-direction: column; overflow: hidden; }
+        .file-name { font-size: 14px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .file-date { font-size: 11px; color: #9E9E9E; margin-top: 2px; }
+
+        /* 底部工具栏 */
+        .bottom-toolbar { height: 52px; background: white; border-top: 1px solid #e0e0e0; display: flex; justify-content: space-around; align-items: center; flex-shrink: 0; color: #757575; }
+        .tool-icon { font-size: 22px; padding: 8px 12px; cursor: pointer; transition: background 0.2s; border-radius: 50%; }
+        .tool-icon:active { background: #f0f0f0; }
+
+        /* 全局遮罩层 */
+        .overlay { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.35); z-index: 15; display: none; backdrop-filter: blur(1px); }
+        .overlay.active { display: block; }
+
+        /* ================= 侧边栏 ================= */
+        #sidebar { position: absolute; left: -280px; top: 0; bottom: 0; width: 280px; background: white; z-index: 20; box-shadow: 2px 0 12px rgba(0,0,0,0.1); transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1); overflow-y: auto; padding-bottom: 20px; }
+        #sidebar.open { left: 0; }
+
+        .sidebar-header { padding: 16px 20px; display: flex; align-items: center; position: relative; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+        .sidebar-header .app-icon { font-size: 22px; margin-right: 12px; color: #2196F3; }
+        .sidebar-header .app-title { font-size: 18px; font-weight: 500; flex: 1; }
+        
+        /* 侧边栏下拉菜单与二级子菜单 */
+        .header-dropdown { display: none; position: absolute; top: 64px; left: 10px; right: 10px; background: white; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 30; padding: 4px 0; }
+        .header-dropdown.open { display: block; }
+        .drop-item { display: flex; align-items: center; padding: 12px 16px; font-size: 14px; color: #333; position: relative; cursor: pointer; transition: background 0.15s; }
+        .drop-item:active { background: #f5f5f5; }
+        .drop-icon { width: 24px; margin-right: 12px; font-size: 16px; text-align: center; }
+        .drop-extra { margin-left: auto; font-weight: bold; color: #9E9E9E; }
+        .drop-item.selected .drop-extra { color: #FDD835; } /* 主题跟随系统的黄色对勾 */
+
+        /* 二级菜单 (悬浮在右侧) */
+        .sub-menu-container { display: none; position: absolute; left: 100%; top: -4px; background: white; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); width: 140px; padding: 4px 0; z-index: 40; }
+        .sub-menu-container.open { display: block; }
+        .sub-menu-item { padding: 12px 16px; font-size: 14px; cursor: pointer; color: #555; transition: background 0.15s; }
+        .sub-menu-item:active { background: #f5f5f5; }
+
+        /* 侧边栏列表项 */
+        .sidebar-title { padding: 16px 20px 8px; font-size: 12px; color: #9E9E9E; display: flex; justify-content: space-between; font-weight: 500; }
+        .menu-item { display: flex; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f9f9f9; font-size: 14px; cursor: pointer; transition: background 0.15s; }
+        .menu-item:active { background: #f5f5f5; }
+        .menu-icon { width: 24px; height: 24px; border-radius: 50%; margin-right: 16px; display: flex; justify-content: center; align-items: center; color: white; font-size: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .menu-icon.blue { background: #2196F3; }
+        .menu-icon.gray { background: #9E9E9E; }
+        .menu-icon.teal { background: #009688; }
+        
+        /* 存储条 */
+        .storage-item { padding: 8px 20px 16px 60px; }
+        .storage-bar-bg { width: 100%; height: 4px; background: #eee; border-radius: 2px; margin-top: 4px; }
+        .storage-bar-fill { height: 100%; background: #FDD835; border-radius: 2px; width: 98%; }
+        .storage-text { display: flex; justify-content: space-between; font-size: 11px; color: #757575; margin-top: 4px; }
+
+        /* ================= 右上角三点下拉菜单 ================= */
+        .topbar-dropdown { position: absolute; top: 56px; right: 8px; width: 170px; background: white; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); padding: 4px 0; display: none; z-index: 40; color: #333; }
+        .topbar-dropdown.open { display: block; }
+        .topbar-drop-item { padding: 12px 16px; display: flex; align-items: center; cursor: pointer; font-size: 14px; transition: background 0.15s; }
+        .topbar-drop-item:active { background: #f5f5f5; }
+
+        /* ================= 设置面板 ================= */
+        #settings-panel { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: white; z-index: 50; display: none; overflow-y: auto; }
+        #settings-panel.open { display: block; }
+        .settings-header { background: var(--primary-blue); color: white; height: 56px; display: flex; align-items: center; padding: 0 16px; font-size: 18px; font-weight: 500; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        .settings-header .back-icon { font-size: 22px; margin-right: 16px; cursor: pointer; padding: 8px; border-radius: 50%; transition: background 0.2s; }
+        .settings-header .back-icon:active { background: rgba(255,255,255,0.15); }
+        
+        .settings-section-title { padding: 16px 16px 8px; font-size: 12px; color: #FDD835; font-weight: bold; }
+        .settings-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid #f0f0f0; }
+        .settings-text { display: flex; flex-direction: column; }
+        .settings-title { font-size: 14px; color: #333; }
+        .settings-desc { font-size: 12px; color: #9E9E9E; margin-top: 4px; }
+        
+        /* 开关 (Toggle) */
+        .toggle-switch { width: 44px; height: 24px; background: #ccc; border-radius: 12px; position: relative; cursor: pointer; transition: background 0.3s; }
+        .toggle-switch.on { background: #FDD835; }
+        .toggle-switch::after { content: ''; position: absolute; left: 2px; top: 2px; width: 20px; height: 20px; background: white; border-radius: 50%; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .toggle-switch.on::after { left: 22px; }
+
+        /* ================= 添加 FTP 弹窗 (图9) ================= */
+        .modal-overlay { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100; display: none; align-items: center; justify-content: center; }
+        .modal-overlay.open { display: flex; }
+        
+        .modal-content { background: white; width: 90%; max-width: 400px; border-radius: 12px; padding: 16px 20px 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); max-height: 90vh; overflow-y: auto; }
+        .modal-title { font-size: 18px; font-weight: 500; margin-bottom: 20px; color: #333; }
+        
+        .form-group { margin-bottom: 16px; position: relative; }
+        .form-label { font-size: 12px; color: #FDD835; display: block; margin-bottom: 2px; font-weight: 500; }
+        .form-input { width: 100%; border: none; border-bottom: 1px solid #e0e0e0; padding: 6px 0; font-size: 14px; outline: none; background: transparent; transition: border-color 0.2s; }
+        .form-input:focus { border-bottom: 1px solid #FDD835; }
+        
+        .input-with-icon { display: flex; align-items: center; }
+        .input-with-icon .form-input { flex: 1; }
+        .icon-btn { padding-left: 8px; color: #757575; cursor: pointer; font-size: 18px; }
+
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; }
+        .toggle-row-left { font-size: 14px; }
+        
+        /* 单选按钮 */
+        .radio-group { display: flex; justify-content: space-between; padding: 8px 0; }
+        .radio-option { display: flex; align-items: center; cursor: pointer; font-size: 14px; }
+        .radio-circle { width: 20px; height: 20px; border: 2px solid #ccc; border-radius: 50%; margin-right: 10px; position: relative; display: flex; justify-content: center; align-items: center; }
+        .radio-option.active .radio-circle { border-color: #FDD835; }
+        .radio-option.active .radio-circle::after { content: ''; width: 10px; height: 10px; background: #FDD835; border-radius: 50%; }
+        
+        .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; padding-top: 12px; border-top: 1px solid #f0f0f0; }
+        .btn-action { padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .btn-test { color: #FDD835; margin-right: auto; }
+        .btn-cancel { color: #757575; }
+        .btn-save { color: #FDD835; font-weight: 500; }
+
+    </style>
+</head>
+<body>
+
+    <!-- 顶部导航栏 -->
+    <div class="top-bar">
+        <div class="icon" onclick="toggleSidebar()">☰</div>
+        <div class="title-area">
+            <div class="path">/storage/emulated/0/1/1/1/apk/</div>
+            <div class="sub-info">文件夹: 0 文件: 9 已用: 106.64G/108.31G</div>
+        </div>
+        <!-- 正确的三点菜单入口 -->
+        <div class="icon icon-right" onclick="toggleTopbarMenu()">⋮</div>
+    </div>
+
+    <!-- 主界面 -->
+    <div class="file-manager">
+        <!-- 左窗口 -->
+        <div class="pane">
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">..</div><div class="file-date"></div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">1.html</div><div class="file-date">26-08-20 10:06</div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">app-debug.apk</div><div class="file-date">26-08-19 23:49</div></div></div>
+            <div class="file-item selected"><div class="file-icon"></div><div class="file-info"><div class="file-name">app-debug.apk.1</div><div class="file-date">26-08-19 23:49</div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">app-debug.apk.2</div><div class="file-date">26-08-19 13:52</div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">app-debug.apk.3</div><div class="file-date">26-08-19 14:20</div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">app-debug.apk.4</div><div class="file-date">26-08-20 00:31</div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">app-debug.apk.5</div><div class="file-date">26-08-20 00:01</div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">app-debug.apk.6</div><div class="file-date">26-08-20 08:24</div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">一个木函.apk</div><div class="file-date">26-08-20 00:42</div></div></div>
+        </div>
+
+        <!-- 右窗口 -->
+        <div class="pane">
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">..</div><div class="file-date"></div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">BBKRecycleAlbum</div><div class="file-date">26-08-16 18:04</div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">push</div><div class="file-date">26-08-20 08:15</div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">1</div><div class="file-date">26-08-13 22:45</div></div></div>
+            <div class="file-item"><div class="file-icon"></div><div class="file-info"><div class="file-name">Download</div><div class="file-date">26-08-19 23:39</div></div></div>
+        </div>
+
+        <!-- 遮罩层 -->
+        <div class="overlay" id="overlay" onclick="closeAllMenus()"></div>
+
+        <!-- 左侧边栏 -->
+        <div id="sidebar">
+            <!-- 侧边栏头部 -->
+            <div class="sidebar-header" onclick="toggleDropdown()">
+                <span class="app-icon">🤖</span>
+                <span class="app-title">MT管理器</span>
+                <span class="drop-extra" style="color:#999; font-size: 18px;">🌙</span>
+                
+                <!-- 头部下拉菜单 -->
+                <div class="header-dropdown" id="headerDropdown">
+                    <div class="drop-item selected">
+                        <span class="drop-icon">🎨</span> 主题跟随系统
+                        <span class="drop-extra" style="color:#FDD835;">✓</span>
+                    </div>
+                    <div class="drop-item" onclick="toggleSubMenu(event)">
+                        <span class="drop-icon">➕</span> 添加网络存储
+                        <span class="drop-extra" style="color:#999;">›</span>
+                        <!-- 二级子菜单 (图10) -->
+                        <div class="sub-menu-container" id="subMenu">
+                            <div class="sub-menu-item" onclick="openFtpModal(); closeAllMenus();">FTP</div>
+                            <div class="sub-menu-item">FTPS</div>
+                            <div class="sub-menu-item">SFTP</div>
+                            <div class="sub-menu-item">SMB</div>
+                            <div class="sub-menu-item">WebDav</div>
+                            <div class="sub-menu-item">对象存储</div>
+                        </div>
+                    </div>
+                    <div class="drop-item"><span class="drop-icon">➕</span> 添加本地存储</div>
+                    <div class="drop-item"><span class="drop-icon">📁</span> 添加网络分组</div>
+                    <div class="drop-item"><span class="drop-icon">🔧</span> 管理工具分组</div>
+                    <div class="drop-item" onclick="toggleSettings(); closeAllMenus();"><span class="drop-icon">⚙</span> 设置</div>
+                </div>
+            </div>
+
+            <!-- 菜单列表 -->
+            <div class="sidebar-title">本地 <span class="expand-icon" style="color:#999; font-size: 10px;">^</span></div>
+            <div class="menu-item"><div class="menu-icon blue">📱</div>根目录</div>
+            <div class="storage-item">
+                <div style="font-size: 13px; color:#555;">内部存储 <span style="float:right; color:#666;">98%</span></div>
+                <div class="storage-bar-bg"><div class="storage-bar-fill"></div></div>
+                <div class="storage-text"><span>106.64G已用</span><span>1.67G可用</span></div>
+            </div>
+            <div class="menu-item"><div class="menu-icon teal">📁</div>Termux Home</div>
+            <div class="menu-item"><div class="menu-icon blue">📁</div>www</div>
+            
+            <div class="sidebar-title" style="margin-top:20px;">网络 <span class="expand-icon" style="color:#999; font-size: 10px;">^</span></div>
+            <div class="menu-item"><div class="menu-icon blue">🖥</div>192.168.1.166</div>
+            
+            <!-- 去除了任何付费选项 (图4+图10) -->
+            <div class="sidebar-title" style="margin-top:20px;">工具 <span class="expand-icon" style="color:#999; font-size: 10px;">^</span></div>
+            <div class="menu-item"><div class="menu-icon gray">🗑</div>回收站</div>
+            <div class="menu-item"><div class="menu-icon gray">🧩</div>插件管理</div>
+        </div>
+
+        <!-- 右上角三点下拉菜单 (图8) -->
+        <div class="topbar-dropdown" id="topbarDropdown">
+            <div class="topbar-drop-item">🔄 刷新</div>
+            <div class="topbar-drop-item">🔍 搜索</div>
+            <div class="topbar-drop-item">⚙ 过滤</div>
+            <div class="topbar-drop-item">☰ 排序方式</div>
+            <div class="topbar-drop-item">⌨ 打开终端</div>
+            <div class="topbar-drop-item">👁 隐藏文件 <span style="margin-left:auto; color:#999;">›</span></div>
+            <div class="topbar-drop-item">📑 添加书签</div>
+            <div class="topbar-drop-item">🏠 设为首页</div>
+            <div class="topbar-drop-item">⇄ 交换窗口</div>
+            <div class="topbar-drop-item" onclick="toggleSettings(); closeAllMenus();">⚙ 设置</div>
+            <div class="topbar-drop-item">↩ 退出</div>
+        </div>
+
+        <!-- 设置面板 -->
+        <div id="settings-panel">
+            <div class="settings-header">
+                <span class="back-icon" onclick="toggleSettings()">←</span> 设置
+            </div>
+            <div class="settings-section-title">启动</div>
+            <div class="settings-item">
+                <div class="settings-text"><span class="settings-title">请求 Root 权限</span><span class="settings-desc">启动时请求 Root 权限，修改此设置后需重启生效</span></div>
+                <div class="toggle-switch on"></div>
+            </div>
+            <div class="settings-item">
+                <div class="settings-text"><span class="settings-title">请求 Shell 权限</span><span class="settings-desc">启动时如果未获取到 Root 权限，会尝试调用 Shizuku</span></div>
+                <div class="toggle-switch on"></div>
+            </div>
+            <div class="settings-item"><div class="settings-text"><span class="settings-title">安装 Shizuku</span><span class="settings-desc">https://shizuku.rikka.app/</span></div></div>
+            
+            <div class="settings-section-title" style="margin-top:16px;">外观</div>
+            <div class="settings-item"><div class="settings-text"><span class="settings-title">桌面图标</span><span class="settings-desc">浅色背景（自适应）</span></div></div>
+            <div class="settings-item"><div class="settings-text"><span class="settings-title">主题颜色</span><span class="settings-desc">选择界面配色方案</span></div></div>
+            <div class="settings-item"><div class="settings-text"><span class="settings-title">文件列表大小</span><span class="settings-desc">小</span></div></div>
+        </div>
+
+        <!-- 添加 FTP 弹窗 (图9) -->
+        <div class="modal-overlay" id="ftpModal">
+            <div class="modal-content">
+                <div class="modal-title">添加 FTP</div>
+                
+                <div class="form-group">
+                    <label class="form-label">主机</label>
+                    <input type="text" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">端口</label>
+                    <input type="text" class="form-input" value="21">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <input type="text" class="form-input" value="anonymous">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">密码</label>
+                    <div class="input-with-icon">
+                        <input type="text" class="form-input" value="可空">
+                        <span class="icon-btn">👁</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">初始路径</label>
+                    <input type="text" class="form-input" value="可空">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">备注</label>
+                    <input type="text" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">编码</label>
+                    <div class="input-with-icon">
+                        <input type="text" class="form-input" value="UTF-8">
+                        <span class="icon-btn" style="font-size: 14px;">...</span>
+                    </div>
+                </div>
+
+                <div class="toggle-row">
+                    <span class="toggle-row-left">启用多线程传输</span>
+                    <div class="toggle-switch on"></div>
+                </div>
+                <div class="toggle-row">
+                    <span class="toggle-row-left">传输时同步文件权限</span>
+                    <div class="toggle-switch"></div>
+                </div>
+                <div class="toggle-row">
+                    <span class="toggle-row-left">在侧拉栏隐藏地址</span>
+                    <div class="toggle-switch"></div>
+                </div>
+
+                <div style="padding: 10px 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f0f0f0;">
+                    <span style="font-size: 14px;">传输模式</span>
+                    <div class="radio-group" style="padding:0; gap: 20px;">
+                        <div class="radio-option active" onclick="selectRadio(this)">
+                            <div class="radio-circle"></div> 被动
+                        </div>
+                        <div class="radio-option" onclick="selectRadio(this)">
+                            <div class="radio-circle"></div> 主动
+                        </div>
+                    </div>
+                </div>
+                <div style="padding: 10px 0; font-size: 14px; color:#333; cursor:pointer;">缩略图选项 &gt;&gt;</div>
+
+                <div class="modal-actions">
+                    <span class="btn-action btn-test">测试</span>
+                    <span class="btn-action btn-cancel" onclick="closeFtpModal()">取消</span>
+                    <span class="btn-action btn-save" onclick="closeFtpModal()">保存</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 底部工具栏 -->
+    <div class="bottom-toolbar">
+        <div class="tool-icon">➕</div>
+        <div class="tool-icon">➡</div>
+        <div class="tool-icon">↩</div>
+        <div class="tool-icon">⇄</div>
+        <div class="tool-icon">⬆</div>
+    </div>
+
+    <script>
+        // 打开/关闭侧边栏
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('overlay');
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('active');
+            if(sidebar.classList.contains('open')) {
+                document.getElementById('headerDropdown').classList.remove('open');
+            }
+        }
+
+        // 关闭所有菜单 (点击遮罩层时调用)
+        function closeAllMenus() {
+            document.getElementById('overlay').classList.remove('active');
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('topbarDropdown').classList.remove('open');
+            document.getElementById('headerDropdown').classList.remove('open');
+        }
+
+        // 打开/关闭侧边栏头部下拉菜单
+        function toggleDropdown() {
+            const dropdown = document.getElementById('headerDropdown');
+            dropdown.classList.toggle('open');
+            document.getElementById('sidebar').classList.add('open');
+            document.getElementById('overlay').classList.add('active');
+        }
+
+        // 打开/关闭【添加网络存储】的二级子菜单 (图10)
+        function toggleSubMenu(event) {
+            event.stopPropagation(); // 防止触发父级关闭
+            const sub = document.getElementById('subMenu');
+            sub.classList.toggle('open');
+        }
+
+        // 打开/关闭右上角三点菜单 (图8)
+        function toggleTopbarMenu() {
+            const menu = document.getElementById('topbarDropdown');
+            menu.classList.toggle('open');
+            if(menu.classList.contains('open')){
+                document.getElementById('overlay').classList.add('active');
+            } else {
+                document.getElementById('overlay').classList.remove('active');
+            }
+        }
+
+        // 打开/关闭设置面板
+        function toggleSettings() {
+            const panel = document.getElementById('settings-panel');
+            panel.classList.toggle('open');
+        }
+
+        // 打开/关闭 FTP 弹窗 (图9)
+        function openFtpModal() {
+            document.getElementById('ftpModal').classList.add('open');
+        }
+        function closeFtpModal() {
+            document.getElementById('ftpModal').classList.remove('open');
+        }
+
+        // 弹窗单选按钮切换逻辑 (主动/被动)
+        function selectRadio(el) {
+            const parent = el.parentElement;
+            parent.querySelectorAll('.radio-option').forEach(opt => opt.classList.remove('active'));
+            el.classList.add('active');
+        }
+    </script>
+</body>
+</html>
+```
