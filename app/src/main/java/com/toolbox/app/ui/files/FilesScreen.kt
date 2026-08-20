@@ -72,12 +72,8 @@ fun FilesScreen(onBack: () -> Unit) {
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
                     
                     Text("本地存储", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
-                    StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0") {
-                        leftPath = it; rightPath = it; scope.launch { drawerState.close() }
-                    }
-                    StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download") {
-                        leftPath = it; rightPath = it; scope.launch { drawerState.close() }
-                    }
+                    StorageItem(Icons.Filled.FolderOpen, "内部存储", "/storage/emulated/0", scope) { scope.launch { drawerState.close(); leftPath = "/storage/emulated/0"; rightPath = "/storage/emulated/0" } }
+                    StorageItem(Icons.Filled.Folder, "Download", "/storage/emulated/0/Download", scope) { scope.launch { drawerState.close(); leftPath = "/storage/emulated/0/Download"; rightPath = "/storage/emulated/0/Download" } }
                 }
             }
         }
