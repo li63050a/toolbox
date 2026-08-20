@@ -30,19 +30,19 @@ class ShizukuFileOps(private val context: Context) : FileOps {
 
     override suspend fun mkdir(path: String): Result<Unit> = runCatching {
         if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
-        executeCommand("mkdir -p \"$path\"")
+        executeCommand("mkdir -p \"$path\"", path)
     }
 
     override suspend fun delete(path: String): Result<Unit> = runCatching {
         if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
         val cmd = if (path.endsWith("/")) "rm -rf \"$path\"" else "rm -f \"$path\""
-        executeCommand(cmd)
+        executeCommand(cmd, path)
     }
 
     override suspend fun rename(oldPath: String, newName: String): Result<Unit> = runCatching {
         if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
         val parent = oldPath.substringBeforeLast('/', "").let { if (it.isEmpty()) "/" else it }
-        executeCommand("mv \"$oldPath\" \"$parent/$newName\"")
+        executeCommand("mv \"$oldPath\" \"$parent/$newName\"", oldPath)
     }
 
     override suspend fun download(remotePath: String, localUri: Uri, progress: (Float) -> Unit): Result<Unit> = runCatching {
@@ -56,7 +56,7 @@ class ShizukuFileOps(private val context: Context) : FileOps {
     override suspend fun chmod(path: String, mode: Int): Result<Unit> = runCatching {
         if (!isRunning() || Shizuku.checkSelfPermission() != 0) throw Exception("Shizuku 未授权")
         val modeStr = String.format("%04o", mode)
-        executeCommand("chmod $modeStr \"$path\"")
+        executeCommand("chmod $modeStr \"$path\"", path)
     }
 
     fun isRunning(): Boolean = Shizuku.pingBinder()
