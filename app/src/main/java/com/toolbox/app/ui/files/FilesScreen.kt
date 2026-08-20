@@ -93,24 +93,6 @@ fun FilesScreen(onBack: () -> Unit) {
     var showTargetMenu by remember { mutableStateOf<String?>(null) }
     var snackbarHostState = remember { SnackbarHostState() }
 
-    val runtimePermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> loadFiles(leftTarget, leftPath, true); loadFiles(rightTarget, rightPath, false) }
-
-    fun requestPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                context.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    data = Uri.parse("package:${context.packageName}")
-                })
-            } catch (e: Exception) {
-                context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-            }
-        } else {
-            runtimePermLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
-        }
-    }
-
     fun loadFiles(target: FsTarget, path: String, isLeft: Boolean) {
         when (target) {
             is FsTarget.Local -> {
@@ -176,8 +158,24 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(leftTarget, leftPath) { loadFiles(leftTarget, leftPath, true) }
-    LaunchedEffect(rightTarget, rightPath) { loadFiles(rightTarget, rightPath, false) }
+    val runtimePermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> loadFiles(leftTarget, leftPath, true); loadFiles(rightTarget, rightPath, false) }
+
+    fun requestPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                })
+            } catch (e: Exception) {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        } else {
+            runtimePermLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+        }
+    }
+
 
     fun executeTransfer(actionType: String, entry: FileEntry, fromSide: String) {
         scope.launch {
