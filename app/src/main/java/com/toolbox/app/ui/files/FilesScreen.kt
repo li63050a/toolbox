@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.concurrent.thread
+import rikka.shizuku.Shizuku
 
 fun checkPermission(ctx: Context): Boolean {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -55,17 +56,20 @@ fun getStoragePath(): String = Environment.getExternalStorageDirectory().absolut
 
 sealed interface FsTarget {
     data object Local : FsTarget
+    data object Shizuku : FsTarget
     data class Ssh(val cfg: ConnectionConfig.Ssh) : FsTarget
     data class Ftp(val cfg: ConnectionConfig.Ftp) : FsTarget
 
     fun label(): String = when (this) {
         is Local -> "本地存储"
+        is Shizuku -> "Shizuku"
         is Ssh -> "SSH · ${cfg.name.ifEmpty { cfg.host }}"
         is Ftp -> "FTP · ${cfg.name.ifEmpty { cfg.host }}"
     }
     
     fun icon() = when (this) {
         is Local -> Icons.Filled.FolderOpen
+        is Shizuku -> Icons.Filled.Shield
         is Ssh -> Icons.Filled.Terminal
         is Ftp -> Icons.Filled.Folder
     }
@@ -92,6 +96,23 @@ fun FilesScreen(onBack: () -> Unit) {
     var actionMenuSide by remember { mutableStateOf("left") }
     var showTargetMenu by remember { mutableStateOf<String?>(null) }
     var snackbarHostState = remember { SnackbarHostState() }
+    var shizukuRunning by remember { mutableStateOf(false) }
+    var shizukuPermission by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        shizukuRunning = Shizuku.pingBinder()
+        if (shizukuRunning) {
+            shizukuPermission = Shizuku.checkSelfPermission() == 0
+        }
+        Shizuku.addBinderReceivedListenerSticky {
+            shizukuRunning = true
+            shizukuPermission = Shizuku.checkSelfPermission() == 0
+        }
+        Shizuku.addBinderDeadListener {
+            shizukuRunning = false
+            shizukuPermission = false
+        }
+    }
 
     fun loadFiles(target: FsTarget, path: String, isLeft: Boolean) {
         when (target) {
@@ -117,6 +138,29 @@ fun FilesScreen(onBack: () -> Unit) {
                     }
                     if (isLeft) leftEntries = entries else rightEntries = entries
                 }.start()
+            }
+            is FsTarget.Shizuku -> {
+                if (isLeft) leftLoading = true else rightLoading = true
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission() != 0) {
+                            withContext(Dispatchers.Main) {
+                                if (isLeft) leftLoading = false else rightLoading = false
+                            }
+                            return@launch
+                        }
+                        val ops = ShizukuFileOps(context)
+                        val entries = ops.list(path).getOrNull() ?: emptyList()
+                        withContext(Dispatchers.Main) {
+                            if (isLeft) { leftEntries = entries; leftLoading = false }
+                            else { rightEntries = entries; rightLoading = false }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            if (isLeft) leftLoading = false else rightLoading = false
+                        }
+                    }
+                }
             }
             is FsTarget.Ssh -> {
                 if (isLeft) leftLoading = true else rightLoading = true
