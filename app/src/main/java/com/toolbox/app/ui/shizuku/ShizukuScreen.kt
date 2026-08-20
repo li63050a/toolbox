@@ -387,7 +387,10 @@ fun ShizukuScreen(onBack: () -> Unit) {
             dismissButton = {
                 TextButton(onClick = { showInstructions = false }) { Text("取消") }
                 TextButton(onClick = { 
-                    android.content.ClipboardManager context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    // 复制指令到剪贴板
+                    val cmd = "adb shell sh /data/local/tmp/start.sh"
+                    android.content.ClipboardManager cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Shizuku指令", cmd))
                     showInstructions = false 
                 }) { Text("复制") }
             }
