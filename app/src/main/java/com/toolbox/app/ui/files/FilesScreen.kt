@@ -1,6 +1,7 @@
 package com.toolbox.app.ui.files
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -33,12 +34,22 @@ import com.toolbox.app.ui.filebrowser.FileEntry
 import java.io.File
 import kotlin.concurrent.thread
 
+fun checkPermission(ctx: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Environment.isExternalStorageManager()
+    } else {
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+    }
+}
+
+fun getStoragePath(): String = Environment.getExternalStorageDirectory().absolutePath
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    var leftPath by remember { mutableStateOf(getStoragePath(context)) }
-    var rightPath by remember { mutableStateOf(getStoragePath(context)) }
+    var leftPath by remember { mutableStateOf(getStoragePath()) }
+    var rightPath by remember { mutableStateOf(getStoragePath()) }
     var leftEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     var rightEntries by remember { mutableStateOf<List<FileEntry>>(emptyList()) }
     var showTargetMenu by remember { mutableStateOf(false) }
@@ -56,33 +67,22 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     }
 
-    fun checkPermission(ctx: android.content.Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-        }
-    }
-
     fun requestPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
-                ctx.startActivity(
+                context.startActivity(
                     Intent(
                         Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                        Uri.parse("package:${ctx.packageName}")
+                        Uri.parse("package:${context.packageName}")
                     )
                 )
             } catch (e: Exception) {
-                ctx.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
             }
         } else {
             permissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
         }
     }
-
-    fun getStoragePath(ctx: android.content.Context): String =
-        Environment.getExternalStorageDirectory().absolutePath
 
     fun loadEntries(path: String, isLeft: Boolean) {
         thread {
@@ -135,15 +135,9 @@ fun FilesScreen(onBack: () -> Unit) {
             Column(Modifier.padding(16.dp)) {
                 Text("选择存储位置", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Divider(modifier = Modifier.padding(vertical = 8.dp))
-                StorageItem(Icons.Filled.FolderOpen, "内部存储", getStoragePath(context)) {
-                    leftPath = it; rightPath = it; showTargetMenu = false
-                }
-                StorageItem(Icons.Filled.Download, "Download", "$${getStoragePath(context)}/Download") {
-                    leftPath = it; rightPath = it; showTargetMenu = false
-                }
-                StorageItem(Icons.Filled.Picture, "DCIM", "$${getStoragePath(context)}/DCIM") {
-                    leftPath = it; rightPath = it; showTargetMenu = false
-                }
+                StorageItem(Icons.Filled.FolderOpen, "内部存储", getStoragePath()) { showTargetMenu = false }
+                StorageItem(Icons.Filled.Download, "Download", "${getStoragePath()}/Download") { showTargetMenu = false }
+                StorageItem(Icons.Filled.Picture, "DCIM", "${getStoragePath()}/DCIM") { showTargetMenu = false }
             }
         }
     }
@@ -197,7 +191,7 @@ private fun FilePanel(side: String, path: String, entries: List<FileEntry>, onNa
             Spacer(Modifier.width(6.dp))
             Text("$side 面板", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(6.dp))
-            Text(path, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(path, modifier = Modifier.fillMaxWidth(0.6f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
             IconButton(onClick = { onNavigate(File(path).parent ?: "/") }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
             }
@@ -215,13 +209,13 @@ private fun FilePanel(side: String, path: String, entries: List<FileEntry>, onNa
 }
 
 @Composable
-private fun FileRow(name: String, isDirectory: Boolean, size: Long, modified: Long, onClick: () -> Unit, onLongClick: () -> Unit = {}) {
+private fun FileRow(name: String, isDirectory: Boolean, size: Long, modified: Long, onClick: () -> Unit, onLongClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).longClickable(onClick = onLongClick).padding(horizontal = 12.dp, vertical = 10.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = MaterialTheme.shapes.medium),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(if (isDirectory) Icons.Filled.Folder else getFileIcon(name), null, tint = if (isDirectory) Color(0xFFFFA000) else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+        Column(modifier = Modifier.fillMaxWidth(0.7f).padding(horizontal = 10.dp)) {
             Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!isDirectory) Text(formatSize(size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -248,8 +242,8 @@ private fun formatSize(size: Long): String = when {
 }
 
 @Composable
-private fun StorageItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, path: String, onClick: (String) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().clickable { onClick(path) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun StorageItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, path: String, onClick: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(12.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge)
