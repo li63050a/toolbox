@@ -179,6 +179,81 @@ fun ShizukuScreen(onBack: () -> Unit) {
         }
     }
 
+    // 打开系统自启动设置页面
+    fun openAutoStartSettings() {
+        try {
+            val brand = android.os.Build.BRAND.lowercase()
+            val model = android.os.Build.MODEL.lowercase()
+            val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+            
+            val intent = when {
+                // 小米/红米
+                brand.contains("xiaomi") || brand.contains("redmi") || manufacturer.contains("xiaomi") -> {
+                    Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                        putExtra("extra_pkgname", context.packageName)
+                    }
+                }
+                // 华为/荣耀
+                brand.contains("huawei") || brand.contains("honor") -> {
+                    Intent().apply {
+                        setClassName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")
+                    }
+                }
+                // OPPO
+                brand.contains("oppo") || manufacturer.contains("oppo") -> {
+                    Intent().apply {
+                        setClassName("com.color.safecenter", "com.color.safecenter.permission.startup.StartupAppListActivity")
+                    }
+                }
+                // vivo
+                brand.contains("vivo") || manufacturer.contains("vivo") -> {
+                    Intent().apply {
+                        setClassName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")
+                    }
+                }
+                // 三星
+                brand.contains("samsung") -> {
+                    Intent().apply {
+                        setClassName("com.samsung.android.sm_cn", "com.samsung.android.sm.ui.appmanagement.AppListDetailActivity")
+                    }
+                }
+                // 魅族
+                brand.contains("meizu") -> {
+                    Intent().apply {
+                        setClassName("com.meizu.safe", "com.meizu.safe.permission.StartupAppListActivity")
+                    }
+                }
+                // 一加
+                brand.contains("oneplus") -> {
+                    Intent().apply {
+                        setClassName("com.oneplus.security", "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity")
+                    }
+                }
+                // 其他品牌 - 尝试通用方法
+                else -> {
+                    Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = android.net.Uri.fromParts("package", context.packageName, null)
+                    }
+                }
+            }
+            
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "打开自启动设置失败", e)
+            // 回退到应用详情页面
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = android.net.Uri.fromParts("package", context.packageName, null)
+                }
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            } catch (e2: Exception) {
+                Log.e(TAG, "无法打开设置", e2)
+            }
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -452,19 +527,17 @@ fun ShizukuScreen(onBack: () -> Unit) {
                     
                     // 开机启动
                     SettingRow(
-                        label = "开机启动",
-                        description = "Shizuku 启动时自动运行",
+                        label = "开机自启动",
+                        description = "允许应用开机自动启动（需在系统设置中授权）",
                         trailing = {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = { toggleAutoStart(!autoStart) },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (autoStart) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
-                                    ),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                ) {
-                                    Text(if (autoStart) "已开启" else "开启", style = MaterialTheme.typography.labelSmall)
-                                }
+                            Button(
+                                onClick = { openAutoStartSettings() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Text("去开启", style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     )
