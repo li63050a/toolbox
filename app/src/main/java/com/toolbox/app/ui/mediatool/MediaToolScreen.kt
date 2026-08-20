@@ -21,6 +21,7 @@ import com.toolbox.app.mediatool.VideoDownloader
 import com.toolbox.app.mediatool.WatermarkType
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaToolScreen(onBack: () -> Unit) {
     val context = LocalContext.current
