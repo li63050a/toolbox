@@ -486,4 +486,6 @@
     <string name="select_video">选择视频</string>
     <string name="splash_image_selected">已选择图片</string>
     <string name="splash_video_selected">已选择视频</string>
-<string name="back">返回</string></resources>
+<string name="home_media_tool_title">媒体工具</string>
+    <string name="home_media_tool_desc">视频下载 · 格式转换 · 水印处理</string>
+    <string name="back">返回</string></resources>

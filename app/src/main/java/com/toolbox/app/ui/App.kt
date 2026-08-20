@@ -13,6 +13,7 @@ import com.toolbox.app.ui.files.FilesScreen
 import com.toolbox.app.ui.ftp.FtpHomeScreen
 import com.toolbox.app.ui.home.HomeScreen
 import com.toolbox.app.ui.log.LogScreen
+import com.toolbox.app.ui.mediatool.MediaToolScreen
 import com.toolbox.app.ui.settings.SettingsScreen
 import com.toolbox.app.ui.shizuku.ShizukuScreen
 import com.toolbox.app.ui.ssh.SshHomeScreen
@@ -30,6 +31,7 @@ object Routes {
     const val LOG = "log"
     const val SETTINGS = "settings"
     const val ABOUT = "about"
+    const val MEDIA_TOOL = "media_tool"
 }
 
 @Composable
@@ -47,5 +49,6 @@ fun App(repo: SettingsRepository) {
         composable(Routes.LOG) { LogScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SETTINGS) { SettingsScreen(repo = repo, onBack = { navController.popBackStack() }) }
         composable(Routes.ABOUT) { AboutScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.MEDIA_TOOL) { MediaToolScreen(onBack = { navController.popBackStack() }) }
     }
 }

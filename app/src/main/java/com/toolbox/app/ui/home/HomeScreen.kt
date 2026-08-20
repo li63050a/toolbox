@@ -36,6 +36,7 @@ private val features = listOf(
     Feature(Routes.DECIBEL, R.string.home_decibel_title, R.string.home_decibel_desc, Icons.Filled.GraphicEq),
     Feature(Routes.DOWNLOAD, R.string.home_dl_title, R.string.home_dl_desc, Icons.Filled.Download),
     Feature(Routes.ADB, R.string.home_adb_title, R.string.home_adb_desc, Icons.Filled.Devices),
+    Feature(Routes.MEDIA_TOOL, R.string.home_media_tool_title, R.string.home_media_tool_desc, Icons.Filled.VideoLibrary),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,6 +69,7 @@ fun HomeScreen(onOpen: (String) -> Unit) {
                     item { Text("文件工具", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(16.dp, 8.dp)) }
                     item { NavItem(Icons.Filled.FolderOpen, "文件管理器", Routes.FILES) { scope.launch { drawerState.close() }; onOpen(Routes.FILES) } }
                     item { NavItem(Icons.Filled.Download, "下载器", Routes.DOWNLOAD) { scope.launch { drawerState.close() }; onOpen(Routes.DOWNLOAD) } }
+                    item { NavItem(Icons.Filled.VideoLibrary, "媒体工具", Routes.MEDIA_TOOL) { scope.launch { drawerState.close() }; onOpen(Routes.MEDIA_TOOL) } }
                     
                     item { Text("其他工具", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(16.dp, 8.dp)) }
                     item { NavItem(Icons.Filled.GraphicEq, "分贝仪", Routes.DECIBEL) { scope.launch { drawerState.close() }; onOpen(Routes.DECIBEL) } }
