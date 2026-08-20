@@ -516,9 +516,14 @@ private fun FilePanel(
             ) {
                 if (path != "/") {
                     item {
-                        FileRow(name = "..", isDirectory = true, size = 0, modified = 0) {
-                            onNavigate(File(path).parent ?: "/")
-                        } onLongClick = {}
+                        FileRow(
+                            name = "..",
+                            isDirectory = true,
+                            size = 0,
+                            modified = 0,
+                            onClick = { onNavigate(File(path).parent ?: "/") },
+                            onLongClick = {}
+                        )
                     }
                 }
                 items(entries) { entry ->
