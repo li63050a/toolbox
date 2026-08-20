@@ -21,7 +21,6 @@ import com.toolbox.app.mediatool.VideoDownloader
 import com.toolbox.app.mediatool.WatermarkType
 import kotlinx.coroutines.launch
 
-@OptIn(::class)
 @Composable
 fun MediaToolScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -32,10 +31,7 @@ fun MediaToolScreen(onBack: () -> Unit) {
     
     // 下载相关状态
     var downloadUrl by remember { mutableStateOf("") }
-    var downloadQuality by remember { mutableStateOf("best") }
-    var downloadFormat by remember { mutableStateOf("mp4") }
     var isDownloading by remember { mutableStateOf(false) }
-    var downloadProgress by remember { mutableStateOf(0f) }
     
     // 转换相关状态
     var convertInput by remember { mutableStateOf("") }
@@ -54,7 +50,6 @@ fun MediaToolScreen(onBack: () -> Unit) {
     var watermarkText by remember { mutableStateOf("水印文字") }
     var watermarkType by remember { mutableStateOf(WatermarkType.VISUAL) }
     var isWatermarking by remember { mutableStateOf(false) }
-    var detectedWatermark by remember { mutableStateOf<String?>(null) }
     
     val ffmpeg = remember { FFmpegWrapper(context) }
     val downloader = remember { VideoDownloader(context) }
@@ -101,16 +96,11 @@ fun MediaToolScreen(onBack: () -> Unit) {
                 0 -> DownloadPanel(
                     url = downloadUrl,
                     onUrlChange = { downloadUrl = it },
-                    quality = downloadQuality,
-                    onQualityChange = { downloadQuality = it },
-                    format = downloadFormat,
-                    onFormatChange = { downloadFormat = it },
                     isDownloading = isDownloading,
-                    progress = downloadProgress,
                     onDownload = {
                         isDownloading = true
                         scope.launch {
-                            val result = downloader.download(downloadUrl, downloadQuality, downloadFormat)
+                            val result = downloader.download(downloadUrl)
                             result.onSuccess {
                                 snackbarHostState.showSnackbar("下载成功: ${it.fileName}")
                             }
@@ -118,7 +108,6 @@ fun MediaToolScreen(onBack: () -> Unit) {
                                 snackbarHostState.showSnackbar(it.message ?: "下载失败")
                             }
                             isDownloading = false
-                            downloadProgress = 0f
                         }
                     }
                 )
@@ -180,17 +169,6 @@ fun MediaToolScreen(onBack: () -> Unit) {
                             result.onFailure { snackbarHostState.showSnackbar(it.message ?: "水印添加失败") }
                             isWatermarking = false
                         }
-                    },
-                    detectedWatermark = detectedWatermark,
-                    onDetectWatermark = {
-                        scope.launch {
-                            val result = watermark.detectAudioWatermark(watermarkInput)
-                            result.onSuccess { 
-                                detectedWatermark = it.detectedWatermark
-                                snackbarHostState.showSnackbar(if (it.success) "检测到水印" else "未检测到水印")
-                            }
-                            result.onFailure { snackbarHostState.showSnackbar(it.message ?: "检测失败") }
-                        }
                     }
                 )
             }
@@ -202,12 +180,7 @@ fun MediaToolScreen(onBack: () -> Unit) {
 private fun DownloadPanel(
     url: String,
     onUrlChange: (String) -> Unit,
-    quality: String,
-    onQualityChange: (String) -> Unit,
-    format: String,
-    onFormatChange: (String) -> Unit,
     isDownloading: Boolean,
-    progress: Float,
     onDownload: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -218,37 +191,6 @@ private fun DownloadPanel(
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("https://www.bilibili.com/video/...") }
         )
-        
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(Modifier.width(120.dp)) {
-                Text("清晰度", style = MaterialTheme.typography.labelMedium)
-                ExposedDropdownMenuBox(expanded = false, onExpandedChange = {}) {
-                    OutlinedTextField(
-                        value = quality,
-                        onValueChange = {},
-                        modifier = Modifier.fillMaxWidth().menuAnchor(),
-                        readOnly = true
-                    )
-                    ExposedDropdownMenu(expanded = false, onDismissRequest = {})
-                }
-            }
-            Column(Modifier.width(100.dp)) {
-                Text("格式", style = MaterialTheme.typography.labelMedium)
-                ExposedDropdownMenuBox(expanded = false, onExpandedChange = {}) {
-                    OutlinedTextField(
-                        value = format,
-                        onValueChange = {},
-                        modifier = Modifier.fillMaxWidth().menuAnchor(),
-                        readOnly = true
-                    )
-                    ExposedDropdownMenu(expanded = false, onDismissRequest = {})
-                }
-            }
-        }
-        
-        if (isDownloading) {
-            LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
-        }
         
         Button(
             onClick = onDownload,
@@ -295,7 +237,7 @@ private fun ConvertPanel(
                 Text("输出格式", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("mp4", "mkv", "avi", "webm", "mp3", "wav", "jpg", "png").forEach { fmt ->
+                    listOf("mp4", "mkv", "avi", "webm", "mp3", "wav").forEach { fmt ->
                         FilterChip(
                             selected = format == fmt,
                             onClick = { onFormatChange(fmt) },
@@ -388,12 +330,10 @@ private fun WatermarkPanel(
     onInputSelect: () -> Unit,
     text: String,
     onTextChange: (String) -> Unit,
-    type: com.toolbox.app.mediatool.WatermarkType,
-    onTypeChange: (com.toolbox.app.mediatool.WatermarkType) -> Unit,
+    type: WatermarkType,
+    onTypeChange: (WatermarkType) -> Unit,
     isWatermarking: Boolean,
-    onApplyWatermark: () -> Unit,
-    detectedWatermark: String?,
-    onDetectWatermark: () -> Unit
+    onApplyWatermark: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -418,13 +358,13 @@ private fun WatermarkPanel(
         
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
-                selected = type == com.toolbox.app.mediatool.WatermarkType.VISUAL,
-                onClick = { onTypeChange(com.toolbox.app.mediatool.WatermarkType.VISUAL) },
+                selected = type == WatermarkType.VISUAL,
+                onClick = { onTypeChange(WatermarkType.VISUAL) },
                 label = { Text("视觉水印") }
             )
             FilterChip(
-                selected = type == com.toolbox.app.mediatool.WatermarkType.FREQUENCY,
-                onClick = { onTypeChange(com.toolbox.app.mediatool.WatermarkType.FREQUENCY) },
+                selected = type == WatermarkType.FREQUENCY,
+                onClick = { onTypeChange(WatermarkType.FREQUENCY) },
                 label = { Text("频率水印") }
             )
         }
@@ -437,28 +377,6 @@ private fun WatermarkPanel(
             Icon(Icons.Filled.WaterDamage, null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("添加水印")
-        }
-        
-        Divider()
-        
-        Text("检测水印", style = MaterialTheme.typography.titleSmall)
-        
-        Button(
-            onClick = onDetectWatermark,
-            enabled = input.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Filled.Search, null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("检测水印")
-        }
-        
-        if (detectedWatermark != null) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("检测到水印: $detectedWatermark", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
         }
     }
 }
