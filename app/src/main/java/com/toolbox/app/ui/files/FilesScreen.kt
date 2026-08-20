@@ -154,7 +154,7 @@ private fun FilePanel(
     onClick: (FileEntry) -> Unit,
     onLongClick: (FileEntry) -> Unit
 ) {
-    Column(modifier = Modifier.weight(1f).fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxWidth().fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -175,7 +175,7 @@ private fun FilePanel(
             Spacer(Modifier.width(6.dp))
             Text(
                 path,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -242,7 +242,7 @@ private fun FileRow(
         )
         
         Column(
-            modifier = Modifier.weight(1f).padding(horizontal = 10.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp)
         ) {
             Text(
                 name,
