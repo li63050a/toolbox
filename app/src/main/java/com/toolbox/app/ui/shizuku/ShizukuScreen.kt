@@ -2,6 +2,7 @@ package com.toolbox.app.ui.shizuku
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -22,10 +23,32 @@ import rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.PrintWriter
-import android.content.pm.PackageManager
-import android.os.Process
 
 private const val TAG = "Shizuku"
+
+fun checkRootAvailable(): Boolean {
+    return try {
+        val process = Runtime.getRuntime().exec("su")
+        process.waitFor(100, java.util.concurrent.TimeUnit.MILLISECONDS)
+        process.destroy()
+        true
+    } catch (e: Exception) {
+        false
+    }
+}
+
+fun startShizukuViaRoot(context: Context) {
+    try {
+        val process = Runtime.getRuntime().exec("su")
+        val writer = PrintWriter(process.outputStream)
+        writer.println("sh /data/local/tmp/start.sh")
+        writer.println("exit")
+        writer.flush()
+        process.waitFor()
+    } catch (e: Exception) {
+        Log.e(TAG, "Root 启动失败", e)
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,8 +72,6 @@ fun ShizukuScreen(onBack: () -> Unit) {
             isRunning = Shizuku.pingBinder()
             hasPermission = if (isRunning) Shizuku.checkSelfPermission() == 0 else false
             serverUid = if (isRunning) "uid=${Shizuku.getUid()}" else ""
-            
-            // 检查 root 是否可用
             isRootAvailable = checkRootAvailable()
         } catch (e: Exception) {
             isRunning = false
@@ -59,17 +80,6 @@ fun ShizukuScreen(onBack: () -> Unit) {
             isRootAvailable = false
         }
     }
-
-fun checkRootAvailable(): Boolean {
-    return try {
-        val process = Runtime.getRuntime().exec("su")
-        process.waitFor(100, java.util.concurrent.TimeUnit.MILLISECONDS)
-        process.destroy()
-        true
-    } catch (e: Exception) {
-        false
-    }
-}
 
     LaunchedEffect(Unit) {
         checkStatus()
@@ -81,7 +91,6 @@ fun checkRootAvailable(): Boolean {
             isRootAvailable = false
         }
         
-        // 检查自启动状态
         try {
             val pm = context.packageManager
             val component = android.content.ComponentName(context, ShizukuBootReceiver::class.java)
@@ -132,7 +141,6 @@ fun checkRootAvailable(): Boolean {
         }
     }
 
-    // 申请 Root 权限
     fun requestRootPermission() {
         Thread {
             try {
@@ -145,8 +153,7 @@ fun checkRootAvailable(): Boolean {
                 
                 if (process.exitValue() == 0) {
                     isRootAvailable = true
-                    // 尝试启动 Shizuku
-                    startShizukuViaRoot()
+                    startShizukuViaRoot(context)
                 } else {
                     isRootAvailable = false
                 }
@@ -156,19 +163,6 @@ fun checkRootAvailable(): Boolean {
             }
         }.start()
     }
-
-fun startShizukuViaRoot(context: Context) {
-    try {
-        val process = Runtime.getRuntime().exec("su")
-        val writer = PrintWriter(process.outputStream)
-        writer.println("sh /data/local/tmp/start.sh")
-        writer.println("exit")
-        writer.flush()
-        process.waitFor()
-    } catch (e: Exception) {
-        Log.e(TAG, "Root 启动失败", e)
-    }
-}
 
     fun toggleAutoStart(enabled: Boolean) {
         try {
@@ -185,7 +179,6 @@ fun startShizukuViaRoot(context: Context) {
         }
     }
 
-    // 主界面
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -291,7 +284,7 @@ fun startShizukuViaRoot(context: Context) {
                     } else if (isRootAvailable) {
                         Spacer(Modifier.height(8.dp))
                         Button(
-                            onClick = { startShizukuViaRoot() },
+                            onClick = { startShizukuViaRoot(context) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
@@ -424,10 +417,7 @@ fun startShizukuViaRoot(context: Context) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { 
-                    // TODO: 实现 ADB 启动
-                    showInstructions = false 
-                }) { Text("发送") }
+                TextButton(onClick = { showInstructions = false }) { Text("发送") }
             },
             dismissButton = {
                 TextButton(onClick = { showInstructions = false }) { Text("取消") }
@@ -537,11 +527,9 @@ private fun AndroidText(text: String, style: androidx.compose.ui.text.TextStyle,
     Text(text, style = style, color = color)
 }
 
-// Boot Receiver 用于开机自启动
 class ShizukuBootReceiver : android.content.BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == android.content.Intent.ACTION_BOOT_COMPLETED) {
-            // 启动 Shizuku 服务
             Log.i(TAG, "开机自启动 Shizuku")
         }
     }
