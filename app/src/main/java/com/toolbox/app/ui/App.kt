@@ -8,7 +8,7 @@ import com.toolbox.app.data.SettingsRepository
 import com.toolbox.app.ui.about.AboutScreen
 import com.toolbox.app.ui.decibel.DecibelScreen
 import com.toolbox.app.ui.downloader.DownloaderScreen
-import com.toolbox.app.ui.easytier.ui.EasyTierScreen
+import com.toolbox.app.easytier.ui.EasyTierScreen
 import com.toolbox.app.ui.files.FilesScreen
 import com.toolbox.app.ui.ftp.FtpHomeScreen
 import com.toolbox.app.ui.home.HomeScreen

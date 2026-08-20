@@ -181,6 +181,7 @@ class EasyTierManager(private val context: Context) {
             isRunning = false
             currentConfig = null
             Log.i(TAG, "EasyTier 已停止")
+            Unit
         }
     }
 
@@ -226,7 +227,7 @@ class EasyTierManager(private val context: Context) {
                 if (peerId < 0) continue
                 val peerJson = route.optJSONObject("peer_info")
                 val peerHostname = peerJson?.optString("hostname", "") ?: route.optString("hostname", "节点${peerId.toString().takeLast(4)}")
-                val routeIp = route.optJSONObject("ipv4_addr")?.optJSONObject("address")?.optInt("addr", 0)
+                val routeIp = route.optJSONObject("ipv4_addr")?.optJSONObject("address")?.optInt("addr", 0) ?: 0
                 val virtIp = if (routeIp != 0) {
                     "${(routeIp ushr 24) and 0xFF}.${(routeIp ushr 16) and 0xFF}.${(routeIp ushr 8) and 0xFF}.${routeIp and 0xFF}"
                 } else "未知"

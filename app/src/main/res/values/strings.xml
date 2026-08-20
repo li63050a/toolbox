@@ -343,7 +343,6 @@
     <string name="home_files_desc">本地文件浏览管理</string>
     <string name="home_easytier_title">EasyTier</string>
     <string name="home_easytier_desc">P2P Mesh VPN 组网工具</string>
-    <string name="home_ssh_title">SSH 终端</string>
     <string name="files_title">文件管理</string>
     <string name="files_local">本地 /</string>
     <string name="files_sec_ssh">SSH / SFTP</string>

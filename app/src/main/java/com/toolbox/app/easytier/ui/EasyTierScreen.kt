@@ -1,8 +1,9 @@
 package com.toolbox.app.easytier.ui
 
 import android.app.Activity
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -18,18 +19,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.toolbox.app.easytier.EasyTierConfig
-import com.toolbox.app.easytier.EasyTierJNI
 import com.toolbox.app.easytier.EasyTierManager
 import com.toolbox.app.easytier.NetworkSnapshot
 import com.toolbox.app.easytier.PeerInfo
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,7 +71,7 @@ fun EasyTierScreen(onBack: () -> Unit) {
             result.fold(
                 onSuccess = { isRunning = true; loading = false },
                 onFailure = {
-                    snackbar.showSnackbar(result.exceptionOrNull()?.message ?: "启动失败")
+                    scope.launch { snackbar.showSnackbar(result.exceptionOrNull()?.message ?: "启动失败") }
                     loading = false
                 }
             )
@@ -108,30 +106,18 @@ fun EasyTierScreen(onBack: () -> Unit) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             TabRow(selectedTabIndex = activeTab) {
-                Tab(
-                    selected = activeTab == 0,
-                    onClick = { activeTab = 0 },
-                    text = { Text("状态") }
-                )
-                Tab(
-                    selected = activeTab == 1,
-                    onClick = { activeTab = 1 },
-                    text = { Text("配置") }
-                )
+                Tab(selected = activeTab == 0, onClick = { activeTab = 0 }, text = { Text("状态") })
+                Tab(selected = activeTab == 1, onClick = { activeTab = 1 }, text = { Text("配置") })
             }
             when (activeTab) {
-                0 -> StatusTab(status, isRunning, mgr, scope, snackbar, onStart = ::start, onStop = ::stop, loading = loading)
-                1 -> ConfigTab(config, onChange = { config = it }, onSave = { mgr.saveConfig(it); snackbar.showSnackbar("已保存") })
+                0 -> StatusTab(status, isRunning, mgr, scope, snackbar, ::start, ::stop, loading)
+                1 -> ConfigTab(config, onChange = { config = it }, onSave = { mgr.saveConfig(config); scope.launch { snackbar.showSnackbar("已保存") } })
             }
         }
     }
 
     if (showSettings) {
-        SettingsDialog(
-            config = config,
-            onDismiss = { showSettings = false },
-            onSave = { c -> config = c; mgr.saveConfig(c) }
-        )
+        SettingsDialog(config, { showSettings = false }, { c -> config = c; mgr.saveConfig(c) })
     }
 }
 
@@ -144,7 +130,8 @@ private fun StatusTab(
     snackbar: SnackbarHostState,
     onStart: () -> Unit,
     onStop: () -> Unit,
-    loading: Boolean
+    loading: Boolean,
+    ctx: android.content.Context = LocalContext.current
 ) {
     val peers = status?.peers ?: emptyList()
     val myNode = status?.myNode
@@ -153,7 +140,6 @@ private fun StatusTab(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 状态卡片
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -163,13 +149,11 @@ private fun StatusTab(
         ) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(if (isRunning) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error),
-                        contentAlignment = Alignment.Center
-                    )
+                    Surface(
+                        modifier = Modifier.size(12.dp),
+                        shape = CircleShape,
+                        color = if (isRunning) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
+                    ) {}
                     Spacer(Modifier.width(8.dp))
                     Text(
                         if (isRunning) "运行中" else "已停止",
@@ -212,7 +196,6 @@ private fun StatusTab(
             }
         }
 
-        // 对端节点列表
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -225,22 +208,19 @@ private fun StatusTab(
                     Text("暂无对端节点", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        items(peers) { peer ->
-                            PeerRow(peer)
-                        }
+                        items(peers) { peer -> PeerRow(peer) }
                     }
                 }
             }
         }
 
-        // 操作按钮
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = {
                     val info = status?.myNode?.virtualIp ?: "无IP"
                     val clip = android.content.ClipData.newPlainText("EasyTier IP", info)
-                    (LocalContext.current.getSystemService(Activity.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(clip)
-                    snackbar.showSnackbar("IP 已复制: $info")
+                    (ctx.getSystemService(Activity.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(clip)
+                    scope.launch { snackbar.showSnackbar("IP 已复制: $info") }
                 },
                 modifier = Modifier.weight(1f)
             ) { Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("复制IP") }
@@ -258,13 +238,11 @@ private fun PeerRow(peer: PeerInfo) {
         Modifier.fillMaxWidth().padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(if (peer.isDirect) Color(0xFF4CAF50) else Color(0xFFFFA000)),
-            contentAlignment = Alignment.Center
-        )
+        Surface(
+            modifier = Modifier.size(8.dp),
+            shape = CircleShape,
+            color = if (peer.isDirect) Color(0xFF4CAF50) else Color(0xFFFFA000)
+        ) {}
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(peer.hostname, style = MaterialTheme.typography.bodyMedium)
@@ -418,6 +396,7 @@ private fun ConfigTab(config: EasyTierConfig, onChange: (EasyTierConfig) -> Unit
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsDialog(
     config: EasyTierConfig,
@@ -431,88 +410,63 @@ private fun SettingsDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
-                    value = c.instanceName,
-                    onValueChange = { c = c.copy(instanceName = it) },
-                    label = { Text("实例名称") },
-                    modifier = Modifier.fillMaxWidth()
+                    value = c.instanceName, onValueChange = { c = c.copy(instanceName = it) },
+                    label = { Text("实例名称") }, modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = c.networkName,
-                    onValueChange = { c = c.copy(networkName = it) },
-                    label = { Text("网络名称") },
-                    modifier = Modifier.fillMaxWidth()
+                    value = c.networkName, onValueChange = { c = c.copy(networkName = it) },
+                    label = { Text("网络名称") }, modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = c.networkSecret,
-                    onValueChange = { c = c.copy(networkSecret = it) },
-                    label = { Text("网络密钥") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    value = c.networkSecret, onValueChange = { c = c.copy(networkSecret = it) },
+                    label = { Text("网络密钥") }, singleLine = true, modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = c.peers,
-                    onValueChange = { c = c.copy(peers = it) },
-                    label = { Text("对等节点（每行一个）") },
-                    minLines = 3,
+                    value = c.peers, onValueChange = { c = c.copy(peers = it) },
+                    label = { Text("对等节点（每行一个）") }, minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = c.dhcp, onCheckedChange = { c = c.copy(dhcp = it) })
-                    Spacer(Modifier.width(8.dp))
-                    Text("自动分配IP")
+                    Spacer(Modifier.width(8.dp)); Text("自动分配IP")
                 }
                 if (!c.dhcp) {
                     OutlinedTextField(
-                        value = c.virtualIpv4,
-                        onValueChange = { c = c.copy(virtualIpv4 = it) },
-                        label = { Text("虚拟IPv4") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        value = c.virtualIpv4, onValueChange = { c = c.copy(virtualIpv4 = it) },
+                        label = { Text("虚拟IPv4") }, singleLine = true, modifier = Modifier.fillMaxWidth()
                     )
                 }
                 OutlinedTextField(
-                    value = c.listenerUrls,
-                    onValueChange = { c = c.copy(listenerUrls = it) },
-                    label = { Text("监听地址") },
-                    minLines = 2,
+                    value = c.listenerUrls, onValueChange = { c = c.copy(listenerUrls = it) },
+                    label = { Text("监听地址") }, minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                }
+                )
                 Divider()
                 Text("加密与传输", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = c.acceptDns, onCheckedChange = { c = c.copy(acceptDns = it) })
-                    Spacer(Modifier.width(8.dp))
-                    Text("魔法DNS")
+                    Spacer(Modifier.width(8.dp)); Text("魔法DNS")
                 }
                 if (c.acceptDns) {
                     OutlinedTextField(
-                        value = c.tldDnsZone,
-                        onValueChange = { c = c.copy(tldDnsZone = it) },
-                        label = { Text("TLD后缀") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        value = c.tldDnsZone, onValueChange = { c = c.copy(tldDnsZone = it) },
+                        label = { Text("TLD后缀") }, singleLine = true, modifier = Modifier.fillMaxWidth()
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = c.disableP2p, onCheckedChange = { c = c.copy(disableP2p = it) })
-                    Spacer(Modifier.width(8.dp))
-                    Text("禁用P2P（纯中转）")
+                    Spacer(Modifier.width(8.dp)); Text("禁用P2P（纯中转）")
                 }
                 OutlinedTextField(
-                    value = c.relayNetworkWhitelist,
-                    onValueChange = { c = c.copy(relayNetworkWhitelist = it) },
-                    label = { Text("中转白名单（* = 全转发）") },
-                    singleLine = true,
+                    value = c.relayNetworkWhitelist, onValueChange = { c = c.copy(relayNetworkWhitelist = it) },
+                    label = { Text("中转白名单（* = 全转发）") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = c.hostname,
-                    onValueChange = { c = c.copy(hostname = it) },
-                    label = { Text("主机名") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    value = c.hostname, onValueChange = { c = c.copy(hostname = it) },
+                    label = { Text("主机名") }, singleLine = true, modifier = Modifier.fillMaxWidth()
                 )
             }
         },
