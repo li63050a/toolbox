@@ -251,6 +251,7 @@ fun EasyTierScreen(onBack: () -> Unit) {
 
     if (showSettings) {
         SettingsDialog(
+            config = activeConfig,
             onDismiss = { showSettings = false },
             onImport = { importLauncher.launch("text/plain") },
             onExport = { cfg -> exportLauncher.launch("easytier_${cfg.name}.toml") }
@@ -523,12 +524,19 @@ private fun ConfigEditorDialog(config: EasyTierConfig, onDismiss: () -> Unit, on
 // ─────────────── 设置对话框 ───────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsDialog(onDismiss: () -> Unit, onImport: () -> Unit, onExport: (EasyTierConfig) -> Unit) {
+private fun SettingsDialog(config: EasyTierConfig, onDismiss: () -> Unit, onImport: () -> Unit, onExport: (EasyTierConfig) -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, title = { Text("设置") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Text("配置文件管理", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Button(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.ImportContacts, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("导入配置文件 (.toml)")
+            }
+            Text("当前配置: ${config.name}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            OutlinedButton(onClick = { onExport(config) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.SaveAlt, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("导出当前配置 (.toml)")
             }
         }
     }, confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } })
