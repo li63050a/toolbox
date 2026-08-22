@@ -71,25 +71,27 @@ class FtpFileOps(
         localUri: Uri,
         progress: (Float) -> Unit
     ): Result<Unit> = runCatching {
-        // 先取大小用于进度
         val size = runCatching {
             client.listFiles(remotePath)?.firstOrNull()?.size ?: -1L
         }.getOrDefault(-1L)
         val input = client.retrieveFileStream(remotePath)
             ?: throw Exception("进入数据连接失败: ${client.replyString?.trim()}")
-        context.contentResolver.openOutputStream(localUri)?.use { out ->
-            val buf = ByteArray(64 * 1024)
-            var total = 0L
-            while (true) {
-                val n = input.read(buf)
-                if (n < 0) break
-                out.write(buf, 0, n)
-                total += n
-                if (size > 0) progress((total.toFloat() / size).coerceIn(0f, 1f))
+        try {
+            context.contentResolver.openOutputStream(localUri)?.use { out ->
+                val buf = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    total += n
+                    if (size > 0) progress((total.toFloat() / size).coerceIn(0f, 1f))
+                }
+                out.flush()
             }
-            out.flush()
+        } finally {
+            input.close()
         }
-        input.close()
         if (!client.completePendingCommand()) {
             throw Exception("传输未完成: ${client.replyString?.trim()}")
         }
@@ -106,18 +108,21 @@ class FtpFileOps(
         }.getOrDefault(-1L)
         val output = client.storeFileStream(dest)
             ?: throw Exception("进入数据连接失败: ${client.replyString?.trim()}")
-        context.contentResolver.openInputStream(localUri)?.use { input ->
-            val buf = ByteArray(64 * 1024)
-            var total = 0L
-            while (true) {
-                val n = input.read(buf)
-                if (n < 0) break
-                output.write(buf, 0, n)
-                total += n
-                if (size > 0) progress((total.toFloat() / size).coerceIn(0f, 1f))
+        try {
+            context.contentResolver.openInputStream(localUri)?.use { input ->
+                val buf = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    output.write(buf, 0, n)
+                    total += n
+                    if (size > 0) progress((total.toFloat() / size).coerceIn(0f, 1f))
+                }
             }
+        } finally {
+            output.close()
         }
-        output.close()
         if (!client.completePendingCommand()) {
             throw Exception("传输未完成: ${client.replyString?.trim()}")
         }

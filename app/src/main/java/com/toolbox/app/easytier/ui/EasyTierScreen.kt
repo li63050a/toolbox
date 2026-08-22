@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,16 +63,24 @@ fun EasyTierScreen(onBack: () -> Unit) {
         vpnAuthorized = true
     }
 
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let {
             scope.launch {
-                val content = context.contentResolver.openInputStream(it)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: return@launch
-                val config = repo.importConfig(content, "导入配置")
-                showAddConfig = false
-                repo.addConfig(config)
-                allConfigs = repo.configs
-                repo.saveActiveConfig(config.id)
-                activeConfigId = config.id
+                try {
+                    val content = context.contentResolver.openInputStream(it)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: run {
+                        snackbarHostState.showSnackbar("导入失败: 文件为空或无法读取")
+                        return@launch
+                    }
+                    val config = repo.importConfig(content, "导入配置")
+                    showAddConfig = false
+                    repo.addConfig(config)
+                    allConfigs = repo.configs
+                    repo.saveActiveConfig(config.id)
+                    activeConfigId = config.id
+                    snackbarHostState.showSnackbar("已导入: ${config.name}")
+                } catch (e: Exception) {
+                    snackbarHostState.showSnackbar("导入失败: ${e.message}")
+                }
             }
         }
     }
@@ -79,12 +88,16 @@ fun EasyTierScreen(onBack: () -> Unit) {
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri: Uri? ->
         uri?.let {
             scope.launch {
-                val cfg = allConfigs.firstOrNull { it.id == activeConfigId } ?: allConfigs.firstOrNull() ?: EasyTierConfig.defaultConfig()
-                val toml = cfg.toToml()
-                context.contentResolver.openOutputStream(it)?.use { out ->
-                    out.write(toml.toByteArray(Charsets.UTF_8))
+                try {
+                    val cfg = allConfigs.firstOrNull { it.id == activeConfigId } ?: allConfigs.firstOrNull() ?: EasyTierConfig.defaultConfig()
+                    val toml = cfg.toToml()
+                    context.contentResolver.openOutputStream(it)?.use { out ->
+                        out.write(toml.toByteArray(Charsets.UTF_8))
+                    }
+                    snackbarHostState.showSnackbar("已导出: ${cfg.name}")
+                } catch (e: Exception) {
+                    snackbarHostState.showSnackbar("导出失败: ${e.message}")
                 }
-                snackbarHostState.showSnackbar("已导出: ${cfg.name}")
             }
         }
     }
@@ -132,7 +145,7 @@ fun EasyTierScreen(onBack: () -> Unit) {
             if (result.isSuccess && result.getOrNull() == 0) {
                 isRunning = true
                 loading = false
-                val ipv4 = if (cfg.dhcp) "10.64.0.1/24" else "${cfg.virtualIpv4.split('/')[0]}/24"
+                val ipv4 = if (cfg.dhcp) "10.64.0.1/24" else "${cfg.virtualIpv4.split('/')[0]}/${cfg.networkLength}"
                 val vpnIntent = Intent(context, EasyTierVpnService::class.java).apply {
                     putExtra(EasyTierVpnService.EXTRA_INSTANCE_NAME, cfg.instanceName)
                     putExtra(EasyTierVpnService.EXTRA_IPV4_ADDRESS, ipv4)
@@ -157,12 +170,18 @@ fun EasyTierScreen(onBack: () -> Unit) {
     }
 
     fun switchConfig(cfg: EasyTierConfig) {
-        if (isRunning) {
-            scope.launch { stopConfig() }
-            isRunning = false
-        }
+        if (cfg.id == activeConfigId) return
         activeConfigId = cfg.id
         scope.launch { repo.saveActiveConfig(cfg.id) }
+        if (isRunning) {
+            scope.launch {
+                withContext(Dispatchers.IO) { EasyTierJNI.stopAllInstances() }
+                context.stopService(Intent(context, EasyTierVpnService::class.java))
+                isRunning = false
+                status = mgrGetStatus(cfg)
+                startConfig(cfg)
+            }
+        }
     }
 
     Scaffold(
@@ -184,7 +203,14 @@ fun EasyTierScreen(onBack: () -> Unit) {
                 onSwitch = { switchConfig(it) },
                 onAdd = { showAddConfig = true },
                 onEdit = { editingConfig = it; showConfigEditor = true },
-                onDelete = { id -> scope.launch { repo.deleteConfig(id) } }
+                onDelete = { id ->
+                    scope.launch {
+                        repo.deleteConfig(id)
+                        allConfigs = repo.configs
+                        activeConfigId = repo.activeId
+                        if (isRunning) { stopConfig() }
+                    }
+                }
             )
 
             TabRow(selectedTabIndex = activeTab) {
@@ -215,10 +241,8 @@ fun EasyTierScreen(onBack: () -> Unit) {
             onDismiss = { showConfigEditor = false },
             onSave = { c ->
                 scope.launch {
-                    val list = allConfigs.toMutableList()
-                    val idx = list.indexOfFirst { it.id == c.id }
-                    if (idx >= 0) list[idx] = c else list.add(c)
                     repo.updateConfig(c)
+                    allConfigs = repo.configs
                     if (activeConfigId == c.id) activeConfigId = c.id
                     showConfigEditor = false
                 }
@@ -227,13 +251,29 @@ fun EasyTierScreen(onBack: () -> Unit) {
     }
 
     if (showAddConfig) {
+        var newName by remember { mutableStateOf("配置${allConfigs.size + 1}") }
         AlertDialog(
             onDismissRequest = { showAddConfig = false },
             title = { Text("新建配置") },
-            text = { OutlinedTextField(value = "", onValueChange = {}, label = { Text("名称") }) },
+            text = {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("配置名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
             confirmButton = {
                 Button(onClick = {
-                    val new = EasyTierConfig(name = "配置${allConfigs.size + 1}")
+                    if (newName.isBlank()) {
+                        scope.launch { snackbarHostState.showSnackbar("名称不能为空") }
+                        return@Button
+                    }
+                    val new = EasyTierConfig(
+                        name = newName.trim(),
+                        instanceName = "toolbox-${UUID.randomUUID().toString().take(8)}"
+                    )
                     scope.launch {
                         repo.addConfig(new)
                         allConfigs = repo.configs
@@ -253,7 +293,7 @@ fun EasyTierScreen(onBack: () -> Unit) {
         SettingsDialog(
             config = activeConfig,
             onDismiss = { showSettings = false },
-            onImport = { importLauncher.launch("text/plain") },
+            onImport = { importLauncher.launch(arrayOf("text/plain", "text/*", "application/octet-stream", "*/*")) },
             onExport = { cfg -> exportLauncher.launch("easytier_${cfg.name}.toml") }
         )
     }
@@ -469,7 +509,10 @@ private fun ConfigEditorDialog(config: EasyTierConfig, onDismiss: () -> Unit, on
     var c by remember { mutableStateOf(config) }
     var expandedSection by remember { mutableStateOf("basic") }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("编辑配置") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             OutlinedTextField(value = c.name, onValueChange = { c = c.copy(name = it) }, label = { Text("配置名称") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = c.instanceName, onValueChange = { c = c.copy(instanceName = it) }, label = { Text("实例名称") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = c.networkName, onValueChange = { c = c.copy(networkName = it) }, label = { Text("网络名称") }, modifier = Modifier.fillMaxWidth())
@@ -483,7 +526,7 @@ private fun ConfigEditorDialog(config: EasyTierConfig, onDismiss: () -> Unit, on
                 OutlinedTextField(value = c.virtualIpv4, onValueChange = { c = c.copy(virtualIpv4 = it) }, label = { Text("虚拟IPv4") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
             OutlinedTextField(value = c.listenerUrls, onValueChange = { c = c.copy(listenerUrls = it) }, label = { Text("监听地址（每行一个）") }, minLines = 2, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.fillMaxWidth())
-            Divider()
+            HorizontalDivider()
             Text("高级选项", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = c.acceptDns, onCheckedChange = { c = c.copy(acceptDns = it) })
@@ -586,7 +629,8 @@ private suspend fun mgrGetStatus(cfg: EasyTierConfig): NetworkSnapshot = withCon
             }
         }
 
-        val error = if (!inst.optBoolean("running", true)) inst.optString("error_msg", null) else null
+        val errorMsg = inst.optString("error_msg")
+        val error = if (!inst.optBoolean("running", true) && errorMsg.isNotEmpty()) errorMsg else null
         NetworkSnapshot(isRunning = inst.optBoolean("running", false), DetailedNetworkInfo(myNode, peers, events, error))
     }.getOrNull() ?: NetworkSnapshot(detailed = DetailedNetworkInfo(error = "解析失败"))
 }

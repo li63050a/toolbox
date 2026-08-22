@@ -140,6 +140,7 @@ object DownloadManager {
                 val dir = partsDir(id).apply { mkdirs() }
                 val block = if (supportsRange) (total + threadN - 1) / threadN else total
                 val files = ArrayList<File>(threadN)
+                for (i in 0 until threadN) files.add(File(dir, "p$i.tmp"))
                 coroutineScope {
                     // 实时进度 + 速度（节流 250ms / 1s）
                     val progressJob = launch {
@@ -156,8 +157,7 @@ object DownloadManager {
                         }
                     }
                     for (i in 0 until threadN) {
-                        val part = File(dir, "p$i.tmp")
-                        files.add(part)
+                        val part = files[i]
                         launch(Dispatchers.IO) {
                             if (supportsRange) {
                                 downloadRange(t.url, part, i.toLong() * block, ((i + 1L) * block - 1).coerceAtMost(total - 1))

@@ -37,6 +37,7 @@ import com.toolbox.app.ui.filebrowser.FileBrowserScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 private enum class FtpPage { LIST, FORM, FILES }
 
@@ -212,7 +213,7 @@ private fun FtpFormPage(initial: ConnectionConfig.Ftp?, onBack: () -> Unit) {
 
     fun save() {
         val cfg = ConnectionConfig.Ftp(
-            id = initial?.id ?: "",
+            id = initial?.id ?: UUID.randomUUID().toString(),
             name = name.ifEmpty { host },
             host = host.trim(),
             port = port.toIntOrNull() ?: 21,
@@ -267,7 +268,7 @@ private fun FtpFormPage(initial: ConnectionConfig.Ftp?, onBack: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = {
                     val cfg = ConnectionConfig.Ftp(
-                        id = initial?.id ?: "", name = name.ifEmpty { host }, host = host.trim(),
+                        id = initial?.id ?: UUID.randomUUID().toString(), name = name.ifEmpty { host }, host = host.trim(),
                         port = port.toIntOrNull() ?: 21, user = user.trim(), password = password,
                         security = security, passive = passive
                     )

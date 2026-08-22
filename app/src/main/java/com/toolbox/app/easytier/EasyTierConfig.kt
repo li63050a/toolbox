@@ -59,6 +59,8 @@ data class EasyTierConfig(
 ) {
     fun toToml(): String {
         val sb = StringBuilder()
+        sb.appendLine("instance_name = \"${instanceName}\"")
+        sb.appendLine()
         sb.appendLine("[network_identity]")
         sb.appendLine("network_name = \"${networkName}\"")
         if (networkSecret.isNotEmpty()) sb.appendLine("network_secret = \"${networkSecret}\"")
@@ -73,7 +75,9 @@ data class EasyTierConfig(
         }
 
         if (!dhcp && virtualIpv4.isNotBlank()) {
-            sb.appendLine("ipv4 = \"$virtualIpv4/$networkLength\"")
+            val ipPart = virtualIpv4.substringBefore("/")
+            val lenPart = virtualIpv4.substringAfter("/", networkLength.toString()).toIntOrNull() ?: networkLength
+            sb.appendLine("ipv4 = \"$ipPart/$lenPart\"")
         } else if (dhcp) {
             sb.appendLine("dhcp = true")
         }
@@ -154,9 +158,12 @@ data class EasyTierConfig(
     }
 
     companion object {
-        fun defaultConfig(name: String = "默认"): EasyTierConfig = EasyTierConfig(name = name)
+        fun defaultConfig(name: String = "默认"): EasyTierConfig = EasyTierConfig(
+            name = name,
+            instanceName = "toolbox-${UUID.randomUUID().toString().take(8)}"
+        )
         fun fromToml(toml: String, name: String = "导入"): EasyTierConfig {
-            val c = EasyTierConfig(name = name)
+            var c = EasyTierConfig(name = name, instanceName = "toolbox-${UUID.randomUUID().toString().take(8)}")
             var curSection = ""
             for (line in toml.lines()) {
                 val trimmed = line.trim()
@@ -168,43 +175,69 @@ data class EasyTierConfig(
                     curSection = trimmed.removePrefix("[").removeSuffix("]")
                     continue
                 }
+                if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+                    val bare = trimmed.removeSurrounding("\"")
+                    when (curSection) {
+                        "stun_servers" -> c = c.copy(stunServers = if (c.stunServers.isBlank()) bare else "${c.stunServers}\n$bare")
+                        "stun_servers_v6" -> c = c.copy(stunServersV6 = if (c.stunServersV6.isBlank()) bare else "${c.stunServersV6}\n$bare")
+                    }
+                    continue
+                }
                 val eq = trimmed.indexOf('=')
                 if (eq < 0) continue
                 val key = trimmed.substring(0, eq).trim()
                 val value = trimmed.substring(eq + 1).trim().removeSurrounding("\"")
-                when ("$curSection.$key") {
-                    ".network_name" -> c.copy(networkName = value)
-                    ".network_secret" -> c.copy(networkSecret = value)
-                    ".hostname" -> c.copy(hostname = value)
-                    ".accept_dns" -> c.copy(acceptDns = value.toBoolean())
-                    ".disable_p2p" -> c.copy(disableP2p = value.toBoolean())
-                    ".private_mode" -> c.copy(privateMode = value.toBoolean())
-                    ".multi_thread" -> c.copy(multiThread = value.toBoolean())
-                    ".bind_device" -> c.copy(bindDevice = value.toBoolean())
-                    ".no_tun" -> c.copy(noTun = value.toBoolean())
-                    ".enable_exit_node" -> c.copy(enableExitNode = value.toBoolean())
-                    ".disable_encryption" -> c.copy(disableEncryption = value.toBoolean())
-                    ".latency_first" -> c.copy(latencyFirst = value.toBoolean())
-                    ".p2p_only" -> c.copy(p2pOnly = value.toBoolean())
-                    ".lazy_p2p" -> c.copy(lazyP2p = value.toBoolean())
-                    ".need_p2p" -> c.copy(needP2p = value.toBoolean())
-                    ".tld_dns_zone" -> c.copy(tldDnsZone = value)
-                    ".mtu" -> c.copy(mtu = value)
-                    ".dev_name" -> c.copy(devName = value)
-                    ".disable_ipv6" -> c.copy(disableIpv6 = value.toBoolean())
-                    ".relay_network_whitelist" -> c.copy(relayNetworkWhitelist = value)
-                    ".enable_relay_network_whitelist" -> c.copy(enableRelayNetworkWhitelist = value.toBoolean())
-                    ".local_private_key" -> c.copy(localPrivateKey = value)
-                    ".local_public_key" -> c.copy(localPublicKey = value)
-                    ".encryption_algorithm" -> c.copy(encryptionAlgorithm = value)
-                    "peer.uri" -> c.copy(peers = if (c.peers.isEmpty()) value else "${c.peers}\n$value")
-                    "listener.url" -> c.copy(listenerUrls = if (c.listenerUrls.isEmpty()) value else "${c.listenerUrls}\n$value")
-                    "mapped_listener.url" -> c.copy(mappedListeners = if (c.mappedListeners.isEmpty()) value else "${c.mappedListeners}\n$value")
-                    "exit_node.name" -> c.copy(exitNodes = if (c.exitNodes.isEmpty()) value else "${c.exitNodes}\n$value")
-                    "route.cidr" -> c.copy(routes = if (c.routes.isEmpty()) value else "${c.routes}\n$value")
-                    "proxy_network.cidr" -> c.copy(proxyNetworks = if (c.proxyNetworks.isEmpty()) value else "${c.proxyNetworks}\n$value")
-                    "stun_servers.${value}" -> {} // handled below
-                    else -> {}
+                when (key) {
+                    "instance_name" -> c = c.copy(instanceName = value)
+                    "network_name" -> c = c.copy(networkName = value)
+                    "network_secret" -> c = c.copy(networkSecret = value)
+                    "hostname" -> c = c.copy(hostname = value)
+                    "dhcp" -> c = c.copy(dhcp = value.toBoolean())
+                    "ipv4" -> {
+                        val ip = value.substringBefore("/")
+                        val len = value.substringAfter("/", "24").toIntOrNull() ?: 24
+                        c = c.copy(virtualIpv4 = ip, networkLength = len, dhcp = false)
+                    }
+                    "ipv6" -> c = c.copy(ipv6 = value)
+                    "accept_dns" -> c = c.copy(acceptDns = value.toBoolean())
+                    "disable_p2p" -> c = c.copy(disableP2p = value.toBoolean())
+                    "private_mode" -> c = c.copy(privateMode = value.toBoolean())
+                    "multi_thread" -> c = c.copy(multiThread = value.toBoolean())
+                    "bind_device" -> c = c.copy(bindDevice = value.toBoolean())
+                    "no_tun" -> c = c.copy(noTun = value.toBoolean())
+                    "enable_exit_node" -> c = c.copy(enableExitNode = value.toBoolean())
+                    "disable_encryption" -> c = c.copy(disableEncryption = value.toBoolean())
+                    "latency_first" -> c = c.copy(latencyFirst = value.toBoolean())
+                    "p2p_only" -> c = c.copy(p2pOnly = value.toBoolean())
+                    "lazy_p2p" -> c = c.copy(lazyP2p = value.toBoolean())
+                    "need_p2p" -> c = c.copy(needP2p = value.toBoolean())
+                    "proxy_forward_by_system" -> c = c.copy(proxyForwardBySystem = value.toBoolean())
+                    "enable_udp_broadcast_relay" -> c = c.copy(enableUdpBroadcastRelay = value.toBoolean())
+                    "tld_dns_zone" -> c = c.copy(tldDnsZone = value)
+                    "mtu" -> c = c.copy(mtu = value)
+                    "dev_name" -> c = c.copy(devName = value)
+                    "disable_ipv6" -> c = c.copy(disableIpv6 = value.toBoolean())
+                    "relay_network_whitelist" -> c = c.copy(relayNetworkWhitelist = value)
+                    "enable_relay_network_whitelist" -> c = c.copy(enableRelayNetworkWhitelist = value.toBoolean())
+                    "enabled" -> if (curSection == "secure_mode") c = c.copy(secureMode = value.toBoolean())
+                    "local_private_key" -> c = c.copy(localPrivateKey = value, secureMode = true)
+                    "local_public_key" -> c = c.copy(localPublicKey = value, secureMode = true)
+                    "encryption_algorithm" -> c = c.copy(encryptionAlgorithm = value)
+                    "socks5_proxy" -> c = c.copy(enableSocks5 = true, socks5Port = value.split(":").lastOrNull()?.toIntOrNull() ?: c.socks5Port)
+                    "uri" -> when (curSection) {
+                        "peer" -> c = c.copy(peers = if (c.peers.isBlank()) value else "${c.peers}\n$value")
+                    }
+                    "url" -> when (curSection) {
+                        "listener" -> c = c.copy(listenerUrls = if (c.listenerUrls.isBlank()) value else "${c.listenerUrls}\n$value")
+                        "mapped_listener" -> c = c.copy(mappedListeners = if (c.mappedListeners.isBlank()) value else "${c.mappedListeners}\n$value")
+                    }
+                    "name" -> when (curSection) {
+                        "exit_node" -> c = c.copy(exitNodes = if (c.exitNodes.isBlank()) value else "${c.exitNodes}\n$value")
+                    }
+                    "cidr" -> when (curSection) {
+                        "route" -> c = c.copy(routes = if (c.routes.isBlank()) value else "${c.routes}\n$value")
+                        "proxy_network" -> c = c.copy(proxyNetworks = if (c.proxyNetworks.isBlank()) value else "${c.proxyNetworks}\n$value")
+                    }
                 }
             }
             return c

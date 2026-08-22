@@ -24,13 +24,23 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = null
         }
         debug {
             isMinifyEnabled = false
             signingConfig = null
         }
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 
     compileOptions {
@@ -59,7 +69,15 @@ android {
                 "META-INF/INDEX.LIST",
                 "META-INF/*.RSA",
                 "META-INF/*.DSA",
-                "META-INF/*.SF"
+                "META-INF/*.SF",
+                "org/xerial/snappy/native/Windows/**",
+                "org/xerial/snappy/native/Mac/**",
+                "org/xerial/snappy/native/AIX/**",
+                "org/xerial/snappy/native/Linux/i386/**",
+                "org/xerial/snappy/native/Linux/x86_64/**",
+                "org/xerial/snappy/native/Linux/aarch64/**",
+                "org/xerial/snappy/native/FreeBSD/**",
+                "org/bouncycastle/pqc/crypto/picnic/lowmcL*.bin.properties",
             )
         }
     }

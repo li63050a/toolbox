@@ -68,9 +68,8 @@ class AdbManager(private val context: Context) {
     }
 
     fun shellCommand(cmd: String): Result<String> {
-        val target = _selectedDevice?.let { "shell:$it:$cmd" } ?: "shell:$cmd"
         return try {
-            val (replyCmd, conn) = openDeviceConnection(target)
+            val (replyCmd, conn) = openDeviceConnection("shell:$cmd")
             if (replyCmd != "OKAY") return Result.failure(IOException("shell: $replyCmd"))
             val sb = StringBuilder()
             var readMore = true
@@ -94,9 +93,8 @@ class AdbManager(private val context: Context) {
     }
 
     fun listFiles(path: String): Result<List<AdbFile>> {
-        val target = _selectedDevice?.let { "sync:$it:" } ?: "sync:"
         return try {
-            val (replyCmd, conn) = openDeviceConnection(target)
+            val (replyCmd, conn) = openDeviceConnection("sync:")
             if (replyCmd != "OKAY") return Result.failure(IOException("sync $replyCmd"))
 
             conn.sendString("LIST")
@@ -171,18 +169,23 @@ class AdbManager(private val context: Context) {
     }
 
     private fun openDeviceConnection(target: String): Pair<String, AdbConnection> {
-        val deviceSerial = _selectedDevice ?: "127.0.0.1"
-        val colonIdx = deviceSerial.indexOf(':')
-        val (host, port) = if (colonIdx >= 0) {
-            Pair(deviceSerial.substring(0, colonIdx), deviceSerial.substring(colonIdx + 1).toIntOrNull() ?: 5555)
-        } else {
-            Pair(deviceSerial, 5555)
-        }
-        val sock = Socket(host, port).apply { soTimeout = 30_000 }
+        val sock = Socket("127.0.0.1", 5037).apply { soTimeout = 30_000 }
         val conn = AdbConnection("dev-${connectionId.incrementAndGet()}", sock)
-        conn.sendString(target)
-        val reply = conn.readFrame()
-        return Pair(reply.first, conn)
+        try {
+            val serial = _selectedDevice ?: return Pair("FAIL", conn)
+            conn.sendString("host:transport:$serial")
+            val transportReply = conn.readFrame()
+            if (transportReply.first != "OKAY") {
+                conn.close()
+                return Pair(transportReply.first, conn)
+            }
+            conn.sendString(target)
+            val reply = conn.readFrame()
+            return Pair(reply.first, conn)
+        } catch (e: Exception) {
+            conn.close()
+            throw e
+        }
     }
 
     private fun parseDeviceList(data: String): List<AdbDevice> {

@@ -63,29 +63,30 @@ class SftpFileOps(
     private fun deleteRecursive(path: String) {
         val channel = channel()
         try {
-            @Suppress("UNCHECKED_CAST")
-            val attrs = channel.stat(path)
-            if (attrs.isDir) {
-                @Suppress("UNCHECKED_CAST")
-                val entries = channel.ls(normalizeDir(path)) as Vector<ChannelSftp.LsEntry>
-                for (e in entries) {
-                    if (e.filename == "." || e.filename == "..") continue
-                    val child = "${normalizeDir(path)}${e.filename}"
-                    if (e.attrs.isDir) {
-                        channel.disconnect()
-                        deleteRecursive(child)
-                        val c2 = channel()
-                        try { c2.rmdir(child) } finally { c2.disconnect() }
-                    } else {
-                        channel.rm(child)
-                    }
-                }
-                channel.rmdir(path)
-            } else {
-                channel.rm(path)
-            }
+            deleteRecursiveInner(channel, path)
         } finally {
             channel.disconnect()
+        }
+    }
+
+    private fun deleteRecursiveInner(channel: ChannelSftp, path: String) {
+        val attrs = try { channel.stat(path) } catch (_: Exception) { return }
+        if (attrs.isDir) {
+            @Suppress("UNCHECKED_CAST")
+            val entries = try { channel.ls(normalizeDir(path)) as Vector<ChannelSftp.LsEntry> } catch (_: Exception) { return }
+            for (e in entries) {
+                if (e.filename == "." || e.filename == "..") continue
+                val child = "${normalizeDir(path)}${e.filename}"
+                if (e.attrs.isDir) {
+                    deleteRecursiveInner(channel, child)
+                    try { channel.rmdir(child) } catch (_: Exception) {}
+                } else {
+                    try { channel.rm(child) } catch (_: Exception) {}
+                }
+            }
+            try { channel.rmdir(path) } catch (_: Exception) {}
+        } else {
+            try { channel.rm(path) } catch (_: Exception) {}
         }
     }
 

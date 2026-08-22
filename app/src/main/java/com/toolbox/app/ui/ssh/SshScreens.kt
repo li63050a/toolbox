@@ -50,6 +50,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 private enum class SshPage { LIST, FORM, TERM, FILES }
@@ -237,7 +238,7 @@ private fun SshFormPage(initial: ConnectionConfig.Ssh?, onBack: () -> Unit) {
 
     fun save() {
         val cfg = ConnectionConfig.Ssh(
-            id = initial?.id ?: "",
+            id = initial?.id ?: UUID.randomUUID().toString(),
             name = name.ifEmpty { host },
             host = host.trim(),
             port = port.toIntOrNull() ?: 22,
